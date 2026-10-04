@@ -9,9 +9,7 @@ namespace GreenLuma_Manager.Services;
 
 public class ProfileService
 {
-    private static readonly string ProfilesDir = Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-        "GLM_Manager",
+    private static readonly string ProfilesDir = Path.Combine(AppPaths.Root,
         "profiles");
 
     public static List<Profile> LoadAll()
@@ -20,7 +18,7 @@ public class ProfileService
         try
         {
             EnsureProfilesDirectoryExists();
-            TryImportFromGlrManager();
+
             TryMigrateProfilesFromOldVersion();
             LoadProfilesFromDirectory(profiles);
             if (profiles.Count == 0) return CreateDefaultProfile(profiles);
@@ -80,6 +78,7 @@ public class ProfileService
 
     public static void Save(Profile profile)
     {
+        if (ConfigService.IsWipingData) return;
         try
         {
             EnsureProfilesDirectoryExists();

@@ -1,5 +1,3 @@
-﻿using System.Diagnostics;
-using System.IO;
 using System.Text.RegularExpressions;
 using GreenLuma_Manager.Models;
 
@@ -8,11 +6,9 @@ namespace GreenLuma_Manager.Services;
 public partial class UpdateService
 {
     private const string GitHubApiUrl = "https://api.github.com/repos/3vil3vo/GreenLuma-Manager/releases/latest";
-    private const string AllowedDownloadHost = "github.com";
-    private const string AllowedDownloadPathPrefix = "/3vil3vo/GreenLuma-Manager/";
     private static readonly string[] RcSeparator = ["-rc"];
 
-    private static string CurrentVersion => MainWindow.Version;
+    private static string CurrentVersion => MainWindow.UpstreamVersion;
 
     [GeneratedRegex("\"tag_name\"\\s*:\\s*\"([^\"]+)\"")]
     private static partial Regex TagNameRegex();
@@ -137,139 +133,5 @@ public partial class UpdateService
         return cleaned;
     }
 
-    public static async Task<bool> PerformAutoUpdateAsync(string downloadUrl)
-    {
-        try
-        {
-            if (!IsValidDownloadUrl(downloadUrl))
-            {
-                Logger.Error(
-                    new InvalidOperationException($"Blocked untrusted download URL: {downloadUrl}"),
-                    "UpdateService.PerformAutoUpdate");
-                return false;
-            }
-
-            var currentExePath = Environment.ProcessPath!;
-            var tempExePath = await DownloadUpdate(downloadUrl).ConfigureAwait(false);
-
-            if (!IsValidPeFile(tempExePath))
-            {
-                File.Delete(tempExePath);
-                Logger.Error(
-                    new InvalidOperationException("Downloaded file is not a valid PE executable"),
-                    "UpdateService.PerformAutoUpdate");
-                return false;
-            }
-
-            CreateAndExecuteUpdateScript(tempExePath, currentExePath);
-
-            return true;
-        }
-        catch (Exception ex)
-        {
-            Logger.Error(ex, "UpdateService.PerformAutoUpdate");
-            return false;
-        }
-    }
-
-    private static bool IsValidDownloadUrl(string url)
-    {
-        return Uri.TryCreate(url, UriKind.Absolute, out var uri) &&
-               uri.Scheme == Uri.UriSchemeHttps &&
-               uri.Host.EndsWith(AllowedDownloadHost, StringComparison.OrdinalIgnoreCase) &&
-               uri.AbsolutePath.StartsWith(AllowedDownloadPathPrefix, StringComparison.OrdinalIgnoreCase);
-    }
-
-    private static bool IsValidPeFile(string filePath)
-    {
-        try
-        {
-            var header = new byte[2];
-            using var fs = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.Read);
-            return fs.Read(header, 0, 2) == 2 && header[0] == 0x4D && header[1] == 0x5A;
-        }
-        catch
-        {
-            return false;
-        }
-    }
-
-    private static async Task<string> DownloadUpdate(string downloadUrl)
-    {
-        var tempDir = Path.GetTempPath();
-        var tempExePath = Path.Combine(tempDir, "GreenLumaManager_Update.exe");
-
-        using var response = await HttpClientProvider.GitHub.GetAsync(downloadUrl).ConfigureAwait(false);
-        response.EnsureSuccessStatusCode();
-
-        await using var fileStream = new FileStream(tempExePath, FileMode.Create, FileAccess.Write, FileShare.None);
-        await response.Content.CopyToAsync(fileStream).ConfigureAwait(false);
-
-        return tempExePath;
-    }
-
-    private static void CreateAndExecuteUpdateScript(string tempExePath, string currentExePath)
-    {
-        var scriptPath = Path.Combine(Path.GetTempPath(), "update.bat");
-        var scriptContent = GenerateUpdateScript(tempExePath, currentExePath);
-
-        File.WriteAllText(scriptPath, scriptContent);
-
-        Process.Start(new ProcessStartInfo
-        {
-            FileName = scriptPath,
-            CreateNoWindow = true,
-            UseShellExecute = false,
-            WindowStyle = ProcessWindowStyle.Hidden
-        });
-    }
-
-    private static string GenerateUpdateScript(string tempExePath, string currentExePath)
-    {
-        var currentExeName = Path.GetFileName(currentExePath);
-
-        return $@"@echo off
-echo Waiting for application to close...
-timeout /t 2 /nobreak >nul
-
-taskkill /F /IM ""{currentExeName}"" >nul 2>&1
-
-echo Waiting for process to fully terminate...
-:wait_process
-tasklist /FI ""IMAGENAME eq {currentExeName}"" 2>NUL | find /I /N ""{currentExeName}"">NUL
-if ""%ERRORLEVEL%""==""0"" (
-    timeout /t 1 /nobreak >nul
-    goto wait_process
-)
-
-echo Process terminated.
-echo Updating...
-
-del ""{currentExePath}"" >nul 2>&1
-:wait_delete
-if exist ""{currentExePath}"" (
-    timeout /t 1 /nobreak >nul
-    del ""{currentExePath}"" >nul 2>&1
-    goto wait_delete
-)
-
-move /y ""{tempExePath}"" ""{currentExePath}""
-if errorlevel 1 (
-    echo Update failed!
-    pause
-    exit /b 1
-)
-
-echo.
-echo ========================================
-echo Update Complete!
-echo ========================================
-echo.
-echo Restarting GreenLuma Manager...
-timeout /t 2 /nobreak >nul
-
-start """" ""{currentExePath}""
-exit
-";
-    }
+    public static Task<bool> PerformAutoUpdateAsync(string downloadUrl) => Task.FromResult(false);
 }

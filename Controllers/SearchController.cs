@@ -53,9 +53,9 @@ public class SearchController
             return;
         }
 
-        if (query.Length < 3)
+        if (query.Length < 2)
         {
-            _notificationManager.ShowToast("Search term must be at least 3 characters", false);
+            _notificationManager.ShowToast("Search term must be at least 2 characters", false);
             return;
         }
 
@@ -71,19 +71,21 @@ public class SearchController
             _searchCts.Dispose();
         }
 
-        _searchCts = new CancellationTokenSource();
+        _searchCts = CancellationTokenSource.CreateLinkedTokenSource(token);
 
+        var active = _searchCts;
         try
         {
-            await PerformSearchAsync(query, _searchCts.Token);
+            await PerformSearchAsync(query, active.Token);
         }
         catch (OperationCanceledException)
         {
-            _notificationManager.StopLoadingDots();
+            if (_searchCts == active) HideLoading();
         }
         catch (Exception ex)
         {
-            _notificationManager.StopLoadingDots();
+            if (_searchCts != active) return;
+            HideLoading();
             _notificationManager.ShowToast("Search failed: " + ex.Message, false);
         }
     }
@@ -99,7 +101,7 @@ public class SearchController
 
         DisplayResults(results);
 
-        if (results.Count == 0) return;
+        if (results.Count == 0 || App.IsPreview) return;
 
         _ = Task.Run(async () =>
         {
@@ -109,7 +111,7 @@ public class SearchController
                 {
                     if (!token.IsCancellationRequested)
                         Application.Current.Dispatcher.Invoke(() => ResultsLoaded?.Invoke());
-                });
+                }, token);
             }
             catch (Exception ex)
             {

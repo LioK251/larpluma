@@ -1,13 +1,11 @@
-﻿using System.IO;
+using System.IO;
 using System.Windows.Media.Imaging;
 
 namespace GreenLuma_Manager.Services;
 
 public class IconCacheService
 {
-    private static readonly string IconCacheDir = Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-        "GLM_Manager",
+    private static readonly string IconCacheDir = Path.Combine(AppPaths.Root,
         "icons");
 
     public static async Task<string?> DownloadAndCacheIconAsync(string appId, string iconUrl)

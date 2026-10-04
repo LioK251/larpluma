@@ -1,4 +1,4 @@
-﻿using System.IO;
+using System.IO;
 using System.Runtime.Loader;
 using System.Text;
 using System.Text.Json;
@@ -10,19 +10,13 @@ namespace GreenLuma_Manager.Services;
 
 public class PluginService
 {
-    private static readonly string PluginsDir = Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-        "GLM_Manager",
+    private static readonly string PluginsDir = Path.Combine(AppPaths.Root,
         "plugins");
 
-    private static readonly string PluginsConfigPath = Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-        "GLM_Manager",
+    private static readonly string PluginsConfigPath = Path.Combine(AppPaths.Root,
         "plugins.json");
 
-    private static readonly string PendingDeletesPath = Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-        "GLM_Manager",
+    private static readonly string PendingDeletesPath = Path.Combine(AppPaths.Root,
         "pending_deletes.json");
 
     private static readonly List<(PluginInfo Info, IPlugin? Instance, AssemblyLoadContext? Context)> LoadedPlugins = [];

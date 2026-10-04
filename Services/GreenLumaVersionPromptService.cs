@@ -5,23 +5,27 @@ namespace GreenLuma_Manager.Services;
 
 public static class GreenLumaVersionPromptService
 {
-    public static void EnsureConfirmed(Config? config)
+    public static void EnsureConfirmed(Config? config) => _ = TryEnsureConfirmed(config);
+
+    public static bool TryEnsureConfirmed(Config? config)
     {
-        if (config == null || config.GreenLumaVersionPromptShown)
-            return;
+        if (config == null) return false;
+        if (config.GreenLumaVersionPromptShown) return true;
 
         var greenLumaPath = config.GreenLumaPath.Trim();
         if (string.IsNullOrWhiteSpace(greenLumaPath))
-            return;
+            return true;
 
         var detected = GreenLumaService.DetectVersion(greenLumaPath);
         if (detected == null || !string.Equals(detected, GreenLumaService.LegacyVersion, StringComparison.Ordinal))
-            return;
+            return true;
 
         var chosen = GreenLumaVersionDialog.Show(detected);
+        if (chosen == null) return false;
 
         config.GreenLumaVersionOverride = chosen;
         config.GreenLumaVersionPromptShown = true;
         ConfigService.Save(config);
+        return true;
     }
 }

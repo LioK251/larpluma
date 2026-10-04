@@ -9,9 +9,8 @@ namespace GreenLuma_Manager.Services;
 
 public class ConfigService
 {
-    private static readonly string ConfigDir = Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-        "GLM_Manager");
+    public static bool IsWipingData { get; private set; }
+    private static readonly string ConfigDir = Path.Combine(AppPaths.Root);
 
     private static readonly string ConfigPath = Path.Combine(ConfigDir, "config.json");
 
@@ -107,6 +106,7 @@ public class ConfigService
 
     public static void Save(Config config)
     {
+        if (IsWipingData) return;
         try
         {
             EnsureConfigDirectoryExists();
@@ -129,12 +129,14 @@ public class ConfigService
     {
         try
         {
+            IsWipingData = true;
             AutostartManager.CleanupAll();
 
             if (Directory.Exists(ConfigDir)) Directory.Delete(ConfigDir, true);
         }
         catch (Exception ex)
         {
+            IsWipingData = false;
             Logger.Error(ex, "ConfigService.WipeData");
         }
     }

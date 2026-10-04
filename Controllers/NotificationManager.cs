@@ -70,9 +70,7 @@ public class NotificationManager
     public void ShowToast(string message, bool isSuccess = true)
     {
         _toastMessage.Text = message;
-        _toastIcon.Fill = isSuccess
-            ? GetResource("Success") ?? Brushes.Green
-            : GetResource("Danger") ?? Brushes.Red;
+        _toastIcon.SetResourceReference(Shape.StrokeProperty, isSuccess ? "Success" : "Danger");
 
         var token = ++_toastToken;
 
@@ -106,28 +104,8 @@ public class NotificationManager
 
     public void SetStatusIndicator(Brush color, string text)
     {
-        var storyboard = new Storyboard();
-
-        var fadeOut = new DoubleAnimation(1.0, 0.0, TimeSpan.FromMilliseconds(150));
-        Storyboard.SetTarget(fadeOut, _txtStatus);
-        Storyboard.SetTargetProperty(fadeOut, new PropertyPath(UIElement.OpacityProperty));
-
-        fadeOut.Completed += (_, _) =>
-        {
-            _statusIndicator.Fill = color;
-            _txtStatus.Text = text;
-
-            var fadeIn = new DoubleAnimation(0.0, 1.0, TimeSpan.FromMilliseconds(150));
-            Storyboard.SetTarget(fadeIn, _txtStatus);
-            Storyboard.SetTargetProperty(fadeIn, new PropertyPath(UIElement.OpacityProperty));
-
-            var storyboardIn = new Storyboard();
-            storyboardIn.Children.Add(fadeIn);
-            storyboardIn.Begin();
-        };
-
-        storyboard.Children.Add(fadeOut);
-        storyboard.Begin();
+        _statusIndicator.Fill = color;
+        _txtStatus.Text = text;
     }
 
     public void UpdateGameCount(int count, bool isFiltered = false)
@@ -142,9 +120,4 @@ public class NotificationManager
         };
     }
 
-    private Brush? GetResource(string key)
-    {
-        if (Application.Current.MainWindow?.Resources[key] is Brush b) return b;
-        return null;
-    }
 }

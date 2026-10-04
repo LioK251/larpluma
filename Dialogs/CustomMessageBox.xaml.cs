@@ -1,4 +1,4 @@
-﻿using System.Windows;
+using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
@@ -12,13 +12,14 @@ public partial class CustomMessageBox
     {
         InitializeComponent();
 
-        TitleText.Text = title;
+        Title = title;
         MessageText.Text = message;
 
         SetIcon(icon);
         SetButtons(buttons);
 
         PreviewKeyDown += OnPreviewKeyDown;
+        Closing += (_, _) => { if (Result == MessageBoxResult.None) Result = MessageBoxResult.Cancel; };
     }
 
     public MessageBoxResult Result { get; private set; }
@@ -31,11 +32,6 @@ public partial class CustomMessageBox
             DialogResult = false;
             Close();
         }
-    }
-
-    private void TitleBar_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
-    {
-        if (e.LeftButton == MouseButtonState.Pressed) DragMove();
     }
 
     private void SetIcon(MessageBoxImage icon)
@@ -114,8 +110,8 @@ public partial class CustomMessageBox
         {
             Content = text,
             Style = isPrimary
-                ? (Style)FindResource("MessageBtn")
-                : (Style)FindResource("SecondaryBtn"),
+                ? (Style)FindResource("PrimaryBtn")
+                : (Style)FindResource("SecondBtn"),
             Margin = ButtonPanel.Children.Count > 0
                 ? new Thickness(8, 0, 0, 0)
                 : new Thickness(0)

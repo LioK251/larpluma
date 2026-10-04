@@ -1,0 +1,23 @@
+<UserControl x:Class="GreenLuma_Manager.Controls.TitleBar" xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" xmlns:local="clr-namespace:GreenLuma_Manager.Controls" Height="44" Focusable="False">
+    <Border Background="{DynamicResource DarkBg}" BorderBrush="{DynamicResource Border}" BorderThickness="0,0,0,1">
+        <Grid Margin="18,0,6,0">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition />
+                <ColumnDefinition Width="Auto" />
+            </Grid.ColumnDefinitions>
+            <TextBlock x:Name="TxtTitle" FontWeight="SemiBold" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" IsHitTestVisible="False" Margin="0,0,16,0" />
+            <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
+                <ContentPresenter Content="{Binding Actions, RelativeSource={RelativeSource AncestorType={x:Type local:TitleBar}}}" WindowChrome.IsHitTestVisibleInChrome="True" Margin="0,0,8,0" />
+                <Button x:Name="BtnMinimize" Style="{StaticResource CaptionButton}" Click="Minimize_Click" ToolTip="Minimize" AutomationProperties.Name="Minimize">
+                    <Path Data="M1 9 H13" Stroke="{DynamicResource TextSecond}" StrokeThickness="1.2" Width="14" Height="14" />
+                </Button>
+                <Button x:Name="BtnMaximize" Style="{StaticResource CaptionButton}" Click="Maximize_Click" ToolTip="Maximize" AutomationProperties.Name="Maximize">
+                    <Path x:Name="MaximizeIcon" Data="M2 2 H12 V12 H2 Z" Stroke="{DynamicResource TextSecond}" StrokeThickness="1.2" Width="14" Height="14" />
+                </Button>
+                <Button x:Name="BtnClose" Style="{StaticResource CaptionButton}" Click="Close_Click" ToolTip="Close" AutomationProperties.Name="Close">
+                    <Path Data="M3 3 L11 11 M11 3 L3 11" Stroke="{DynamicResource TextSecond}" StrokeThickness="1.2" Width="14" Height="14" />
+                </Button>
+            </StackPanel>
+        </Grid>
+    </Border>
+</UserControl>

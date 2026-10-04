@@ -13,7 +13,7 @@ public class Config
 
     [DataMember] public bool DisableUpdateCheck { get; set; }
 
-    [DataMember] public bool AutoUpdate { get; set; } = true;
+    [DataMember] public bool AutoUpdate { get; set; }
 
     [DataMember] public string LastProfile { get; set; } = "default";
 

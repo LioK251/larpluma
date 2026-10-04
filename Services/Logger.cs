@@ -5,9 +5,7 @@ namespace GreenLuma_Manager.Services;
 
 public static class Logger
 {
-    private static readonly string LogDir = Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-        "GLM_Manager");
+    private static readonly string LogDir = Path.Combine(AppPaths.Root);
 
     private static readonly string LogPath = Path.Combine(LogDir, "GreenLuma-Manager.log");
     private static readonly string PrevLogPath = Path.Combine(LogDir, "GreenLuma-Manager.prev.log");

@@ -1,0 +1,23 @@
+name: Build Larpluma
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: '10.0.x'
+      - name: Check and package
+        shell: pwsh
+        run: ./scripts/build.ps1 -Check
+      - uses: actions/upload-artifact@v7
+        with:
+          name: Larpluma-win-x64
+          path: |
+            dist/Larpluma.exe
+            dist/LICENSE
+            dist/README.md

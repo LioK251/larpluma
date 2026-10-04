@@ -1,4 +1,4 @@
-﻿namespace GreenLuma_Manager.Services;
+namespace GreenLuma_Manager.Services;
 
 public class AppPackageInfo
 {

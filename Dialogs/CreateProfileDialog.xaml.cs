@@ -1,4 +1,4 @@
-﻿using System.IO;
+using System.IO;
 using System.Windows;
 using System.Windows.Input;
 using GreenLuma_Manager.Models;
@@ -20,11 +20,6 @@ public partial class CreateProfileDialog
     private void OnPreviewKeyDown(object sender, KeyEventArgs e)
     {
         if (e.Key == Key.Escape) Cancel_Click(sender, null);
-    }
-
-    private void TitleBar_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
-    {
-        if (e.LeftButton == MouseButtonState.Pressed) DragMove();
     }
 
     private void ProfileName_PreviewTextInput(object sender, TextCompositionEventArgs e)

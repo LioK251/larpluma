@@ -1,4 +1,4 @@
-﻿using System.Diagnostics;
+using System.Diagnostics;
 using System.IO;
 using System.Windows;
 using System.Windows.Input;
@@ -13,16 +13,19 @@ namespace GreenLuma_Manager.Dialogs;
 public partial class SettingsDialog
 {
     private readonly Config _config;
+    private readonly bool _startupWasEnabled;
 
     public SettingsDialog(Config config)
     {
         InitializeComponent();
         _config = config;
+        _startupWasEnabled = config.ReplaceSteamAutostart;
 
         LoadSettings();
         UpdateAutoUpdateVisibility();
 
         PreviewKeyDown += OnPreviewKeyDown;
+        Closed += (_, _) => ViewAppearance.Revert();
     }
 
     private void LoadSettings()
@@ -76,15 +79,17 @@ public partial class SettingsDialog
 
     private void Nav_Checked(object sender, RoutedEventArgs e)
     {
-        if (ViewGeneral == null || ViewSystem == null || ViewAdvanced == null) return;
+        if (ViewGeneral == null || ViewSystem == null || ViewAdvanced == null || ViewAppearance == null) return;
 
         ViewGeneral.Visibility = Visibility.Collapsed;
         ViewSystem.Visibility = Visibility.Collapsed;
         ViewAdvanced.Visibility = Visibility.Collapsed;
+        ViewAppearance.Visibility = Visibility.Collapsed;
 
         if (NavGeneral.IsChecked == true) ShowView(ViewGeneral);
         else if (NavSystem.IsChecked == true) ShowView(ViewSystem);
         else if (NavAdvanced.IsChecked == true) ShowView(ViewAdvanced);
+        else if (NavAppearance.IsChecked == true) ShowView(ViewAppearance);
     }
 
     private static void ShowView(UIElement view)
@@ -142,10 +147,8 @@ public partial class SettingsDialog
         if (ChkAutoUpdate == null || ChkDisableUpdateCheck == null)
             return;
 
-        var isEnabled = !ChkDisableUpdateCheck.IsChecked.GetValueOrDefault();
-        ChkAutoUpdate.IsEnabled = isEnabled;
-
-        if (!isEnabled) ChkAutoUpdate.IsChecked = false;
+        ChkAutoUpdate.IsEnabled = false;
+        ChkAutoUpdate.IsChecked = false;
     }
 
     private void WipeData_Click(object sender, RoutedEventArgs e)
@@ -169,6 +172,7 @@ public partial class SettingsDialog
         var detected = GreenLumaService.DetectVersion(_config.GreenLumaPath) ?? _config.GreenLumaVersionOverride;
         var chosen = GreenLumaVersionDialog.Show(
             string.IsNullOrWhiteSpace(detected) ? "unknown" : detected);
+        if (chosen == null) return;
 
         _config.GreenLumaVersionOverride = chosen;
         _config.GreenLumaVersionPromptShown = true;
@@ -194,6 +198,7 @@ public partial class SettingsDialog
 
     private async void DeployGreenLuma_Click(object sender, RoutedEventArgs e)
     {
+        if (App.IsPreview) { CustomMessageBox.Show("This operation is disabled in preview mode.", "Preview"); return; }
         var zipPath = TxtGreenLumaZipPath.Text;
         var destinationPath = NormalizePath(TxtGreenLumaPath.Text);
 
@@ -244,9 +249,7 @@ public partial class SettingsDialog
 
     private void OpenAppData_Click(object sender, RoutedEventArgs e)
     {
-        var appDataDir = Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-            "GLM_Manager");
+        var appDataDir = Path.Combine(AppPaths.Root);
 
         if (Directory.Exists(appDataDir))
             Process.Start(new ProcessStartInfo { FileName = appDataDir, UseShellExecute = true });
@@ -257,6 +260,7 @@ public partial class SettingsDialog
 
     private async void RestartSteam_Click(object sender, RoutedEventArgs e)
     {
+        if (App.IsPreview) { CustomMessageBox.Show("This operation is disabled in preview mode.", "Preview"); return; }
         try
         {
             var steamExePath = Path.Combine(_config.SteamPath, "Steam.exe");
@@ -396,7 +400,15 @@ public partial class SettingsDialog
         var steamPath = NormalizePath(TxtSteamPath.Text);
         var greenLumaPath = NormalizePath(TxtGreenLumaPath.Text);
 
-        if (!ValidatePaths(steamPath, greenLumaPath)) return;
+        if (NavAppearance.IsChecked == true)
+        {
+            if (!ViewAppearance.Commit()) return;
+            DialogResult = true;
+            Close();
+            return;
+        }
+        if ((steamPath.Length > 0 || greenLumaPath.Length > 0) && !ValidatePaths(steamPath, greenLumaPath)) return;
+        if (!ViewAppearance.Commit()) return;
 
         var (_, isStealthOnly, _) = GreenLumaService.ValidateInstallation(greenLumaPath);
         if (isStealthOnly)
@@ -422,9 +434,10 @@ public partial class SettingsDialog
         _config.CheckGreenLumaUpdates = ChkCheckGreenLumaUpdates.IsChecked.GetValueOrDefault();
         _config.GreenLumaUpdateCheckAutoDetectDone = true;
         _config.DisableUpdateCheck = ChkDisableUpdateCheck.IsChecked.GetValueOrDefault();
-        _config.AutoUpdate = ChkAutoUpdate.IsChecked.GetValueOrDefault();
+        _config.AutoUpdate = false;
         ConfigService.Save(_config);
-        AutostartManager.ManageAutostart(_config.ReplaceSteamAutostart, _config);
+        if (!App.IsPreview && (_config.ReplaceSteamAutostart || _startupWasEnabled))
+            AutostartManager.ManageAutostart(_config.ReplaceSteamAutostart, _config);
 
         DialogResult = true;
         Close();

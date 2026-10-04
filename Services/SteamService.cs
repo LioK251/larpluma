@@ -77,27 +77,28 @@ public sealed class SteamService : IDisposable
         return result.GetValueOrDefault(appId);
     }
 
-    public async Task<Dictionary<uint, GameDetails>> GetAppInfoBatchAsync(List<uint> appIds)
+    public async Task<Dictionary<uint, GameDetails>> GetAppInfoBatchAsync(List<uint> appIds, CancellationToken ct = default)
     {
         var results = new Dictionary<uint, GameDetails>();
-        var maxRetries = 2;
+        var maxRetries = 1;
 
-        await _apiThrottle.WaitAsync().ConfigureAwait(false);
+        await _apiThrottle.WaitAsync(ct).ConfigureAwait(false);
         try
         {
             for (var attempt = 0; attempt <= maxRetries; attempt++)
                 try
                 {
-                    if (!await EnsureReadyAsync().ConfigureAwait(false)) return results;
+                    if (!await EnsureReadyAsync().WaitAsync(TimeSpan.FromSeconds(8), ct).ConfigureAwait(false)) return results;
 
                     var tokens = new Dictionary<uint, ulong>();
                     try
                     {
                         var tokenResult =
-                            await _steamApps.PICSGetAccessTokens(appIds, []).ToTask().ConfigureAwait(false);
+                            await _steamApps.PICSGetAccessTokens(appIds, []).ToTask().WaitAsync(TimeSpan.FromSeconds(8), ct).ConfigureAwait(false);
                         foreach (var (appId, token) in tokenResult.AppTokens)
                             tokens[appId] = token;
                     }
+                    catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
                     catch (Exception ex)
                     {
                         Logger.Error(ex, "SteamService.GetTokens");
@@ -112,20 +113,21 @@ public sealed class SteamService : IDisposable
                     var job = _steamApps.PICSGetProductInfo(requests, []);
                     var task = job.ToTask();
 
-                    if (await Task.WhenAny(task, Task.Delay(TimeSpan.FromSeconds(10))) != task)
+                    if (await Task.WhenAny(task, Task.Delay(TimeSpan.FromSeconds(8), ct)) != task)
                     {
                         ObserveTask(task);
+                        ct.ThrowIfCancellationRequested();
                         if (attempt < maxRetries) continue;
                         break;
                     }
 
-                    var result = await task.ConfigureAwait(false);
+                    var result = await task.WaitAsync(ct).ConfigureAwait(false);
 
                     if (result.Failed || result.Results == null)
                     {
                         if (attempt < maxRetries)
                         {
-                            await Task.Delay(500).ConfigureAwait(false);
+                            await Task.Delay(500, ct).ConfigureAwait(false);
                             continue;
                         }
 
@@ -190,11 +192,12 @@ public sealed class SteamService : IDisposable
 
                     if (results.Count > 0) return results;
                 }
+                catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
                 catch (Exception ex)
                 {
                     Logger.Error(ex, "SteamService.GetAppInfoBatch");
                     if (attempt == maxRetries) break;
-                    await Task.Delay(500).ConfigureAwait(false);
+                    await Task.Delay(500, ct).ConfigureAwait(false);
                 }
         }
         finally

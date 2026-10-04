@@ -9,14 +9,13 @@ public static class WebView2Helper
 {
     private const string LoaderResourceName = "GreenLuma_Manager.Native.WebView2Loader.dll";
 
-    private static readonly string AppDataDir = Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-        "GLM_Manager");
+    private static readonly string AppDataDir = Path.Combine(AppPaths.Root);
 
     private static readonly string UserDataDir = Path.Combine(AppDataDir, "WebView2");
     private static readonly string LoaderPath = Path.Combine(AppDataDir, "WebView2Loader.dll");
 
     private static CoreWebView2Environment? _cachedEnvironment;
+    private static readonly SemaphoreSlim EnvironmentLock = new(1, 1);
     private static bool _loaderReady;
 
     public static async Task<CoreWebView2Environment> GetEnvironmentAsync()
@@ -24,16 +23,16 @@ public static class WebView2Helper
         if (_cachedEnvironment is not null)
             return _cachedEnvironment;
 
-        EnsureLoaderExtracted();
-
-        if (!Directory.Exists(UserDataDir))
+        await EnvironmentLock.WaitAsync().ConfigureAwait(false);
+        try
+        {
+            if (_cachedEnvironment is not null) return _cachedEnvironment;
+            EnsureLoaderExtracted();
             Directory.CreateDirectory(UserDataDir);
-
-        _cachedEnvironment = await CoreWebView2Environment.CreateAsync(
-            null,
-            UserDataDir).ConfigureAwait(false);
-
-        return _cachedEnvironment;
+            _cachedEnvironment = await CoreWebView2Environment.CreateAsync(null, UserDataDir).ConfigureAwait(false);
+            return _cachedEnvironment;
+        }
+        finally { EnvironmentLock.Release(); }
     }
 
     private static void EnsureLoaderExtracted()

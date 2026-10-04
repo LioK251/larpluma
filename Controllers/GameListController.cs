@@ -106,7 +106,8 @@ public class GameListController
 
     public void AddGame(Game game)
     {
-        var index = BinarySearchInsertIndex(game.Name);
+        var sorted = Games.Zip(Games.Skip(1), (a, b) => string.Compare(a.Name, b.Name, StringComparison.OrdinalIgnoreCase) <= 0).All(x => x);
+        var index = sorted ? BinarySearchInsertIndex(game.Name) : Games.Count;
         Games.Insert(index, game);
 
         var view = CollectionViewSource.GetDefaultView(Games);
@@ -132,7 +133,7 @@ public class GameListController
         _typeFilter = null;
         CollectionViewSource.GetDefaultView(Games).Filter = null;
 
-        foreach (var game in games.OrderBy(g => g.Name, StringComparer.OrdinalIgnoreCase))
+        foreach (var game in games)
             Games.Add(game);
 
         _notificationManager.UpdateGameCount(Games.Count);

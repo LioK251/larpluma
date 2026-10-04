@@ -1,4 +1,7 @@
 # Build results
+.tools/
+dist/
+artifacts/
 [Dd]ebug/
 [Dd]ebugPublic/
 [Rr]elease/

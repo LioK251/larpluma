@@ -21,7 +21,8 @@ namespace GreenLuma_Manager;
 
 public partial class MainWindow
 {
-    public const string Version = "RC2.21";
+    public const string Version = "0.1.0";
+    public const string UpstreamVersion = "RC2.21";
     private const string LatestGreenLumaVersion = "1.8.6";
     private readonly AppListController _appListController;
     private readonly GameListController _gameListController;
@@ -38,6 +39,12 @@ public partial class MainWindow
     public MainWindow()
     {
         InitializeComponent();
+        if (App.IsPreview && Environment.GetCommandLineArgs().Contains("--smoke"))
+        {
+            WindowStartupLocation = WindowStartupLocation.Manual;
+            Left = -12000; Top = -12000;
+            ShowActivated = false; ShowInTaskbar = false;
+        }
 
         _profiles = [];
 
@@ -59,7 +66,7 @@ public partial class MainWindow
         _appListController = new AppListController(
             _profileController, _gameListController, _launcher, _notificationManager);
 
-        _searchController.GameSelected += OnSearchResultSelected;
+        _searchController.GameSelected += game => _ = OpenDetailsAsync(uint.Parse(game.AppId));
         _searchController.ResultsLoaded += UpdateResultCount;
 
         FocusSearchCommand = new RelayCommand(_ => TxtSearchInput.Focus());
@@ -92,12 +99,24 @@ public partial class MainWindow
 
         _gameListController.UpdateGameListState();
         UpdatePluginButtons();
-        CheckPathsOnStartup();
-        CheckApiKeyOnStartup();
-        CheckForUpdates();
-        CheckForGreenLumaUpdates();
-        CheckGreenLumaVersionOnStartup();
+        if (!App.IsPreview) CheckPathsOnStartup();
+
+        if (!App.IsPreview)
+        {
+            CheckForUpdates();
+            CheckForGreenLumaUpdates();
+            CheckGreenLumaVersionOnStartup();
+        }
+        else
+        {
+            BtnGenerateApplist.IsEnabled = false;
+            BtnLaunchGreenluma.IsEnabled = false;
+            _searchController.DisplayResults(new[] { PreviewGame().BaseGame! }.ToList());
+        }
         UpdateStatus();
+        AppearanceService.Changed += UpdateStatus;
+        Backdrop.StatusChanged += message => { if (message != null) _notificationManager.ShowToast(message, false); };
+        CmbGameTypeFilter.SelectedIndex = 0;
     }
 
     public ICommand FocusSearchCommand { get; }
@@ -115,35 +134,16 @@ public partial class MainWindow
             ConfigService.Save(_config);
         }
 
+        AppearanceService.Changed -= UpdateStatus;
+        CancelDetails();
+        _searchController.CancelSearch();
+        _profileLoadCts?.Cancel();
         base.OnClosing(e);
-    }
-
-    private void TitleBar_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
-    {
-        if (e.ClickCount == 2)
-            WindowState = WindowState == WindowState.Maximized ? WindowState.Normal : WindowState.Maximized;
-        else
-            DragMove();
-    }
-
-    private void MinimizeButton_Click(object sender, RoutedEventArgs e)
-    {
-        WindowState = WindowState.Minimized;
-    }
-
-    private void MaximizeButton_Click(object sender, RoutedEventArgs e)
-    {
-        WindowState = WindowState == WindowState.Maximized ? WindowState.Normal : WindowState.Maximized;
-    }
-
-    private void CloseButton_Click(object sender, RoutedEventArgs e)
-    {
-        Close();
     }
 
     private void GitHubButton_Click(object sender, RoutedEventArgs e)
     {
-        LaunchBrowser("https://github.com/3vil3vo/GreenLuma-Manager");
+        LaunchBrowser("https://github.com/LioK251/larpluma");
     }
 
     private static void LaunchBrowser(string url)
@@ -202,27 +202,14 @@ public partial class MainWindow
         _notificationManager.ShowToast("No Steam API key set! Please add one in Settings.", false);
     }
 
-    private void SearchInput_KeyDown(object sender, KeyEventArgs e)
+    private async void SearchInput_KeyDown(object sender, KeyEventArgs e)
     {
         if (e.Key != Key.Return) return;
-        var query = TxtSearchInput.Text.Trim();
-        if (query.Length >= 3) MaybeShowApiKeyNotice();
-        _ = _searchController.ExecuteSearchAsync(query);
+        e.Handled = true;
+        await RunSearchAsync();
     }
 
-    private async void SearchButton_Click(object sender, RoutedEventArgs e)
-    {
-        var query = TxtSearchInput.Text.Trim();
-
-        if (uint.TryParse(query, out var appId) && appId > 0)
-        {
-            await TryAddByAppIdAsync(appId).ConfigureAwait(true);
-            return;
-        }
-
-        if (query.Length >= 3) MaybeShowApiKeyNotice();
-        await _searchController.ExecuteSearchAsync(query);
-    }
+    private async void SearchButton_Click(object sender, RoutedEventArgs e) => await RunSearchAsync();
 
     private void ResultFilter_Changed(object sender, RoutedEventArgs e)
     {
@@ -233,6 +220,9 @@ public partial class MainWindow
     private void UpdateResultCount()
     {
         if (BtnHideAdded == null || TxtResultCount == null) return;
+        if (_searchController == null) return;
+        foreach (var game in _searchController.SearchResults)
+            game.IsInProfile = _gameListController.Games.Any(x => x.AppId == game.AppId);
         var view = CollectionViewSource.GetDefaultView(_searchController.SearchResults);
         view.Filter = item =>
         {
@@ -288,6 +278,8 @@ public partial class MainWindow
         UpdateResultCount();
         _notificationManager.ShowToast($"Added {game.Name}");
 
+        var activeProfile = _profileController.CurrentProfile;
+        if (App.IsPreview) return;
         _ = Task.Run(async () =>
         {
             try
@@ -297,6 +289,7 @@ public partial class MainWindow
 
                 await Application.Current.Dispatcher.InvokeAsync(() =>
                 {
+                    if (_profileController.CurrentProfile != activeProfile) return;
                     var existingGame = _gameListController.Games.FirstOrDefault(g => g.AppId == newGame.AppId);
                     if (existingGame == null) return;
 
@@ -352,7 +345,7 @@ public partial class MainWindow
             }
 
             _lastAddAllGames = null;
-            btn.Content = "ADD ALL";
+            btn.Content = "Add all";
             return;
         }
 
@@ -371,110 +364,11 @@ public partial class MainWindow
         if (added.Count > 0)
         {
             _lastAddAllGames = added;
-            btn.Content = "UNDO";
+            btn.Content = "Undo";
         }
         else
         {
             _notificationManager.ShowToast("All results already in profile", false);
-        }
-    }
-
-    private async Task TryAddByAppIdAsync(uint appId)
-    {
-        var appIdStr = appId.ToString();
-
-        try
-        {
-            _searchController.ShowLoading();
-
-            var details = await Task.Run(() => SteamService.Instance.GetGameDetailsAsync(appId)).ConfigureAwait(true);
-
-            if (details != null && details.Name != $"App {appId}")
-            {
-                _searchController.HideLoading();
-
-                var game = new Game
-                {
-                    AppId = appIdStr,
-                    Name = details.Name,
-                    Type = details.Type,
-                    IconUrl = string.Empty
-                };
-
-                OnSearchResultSelected(game);
-                return;
-            }
-
-            var pkgAppIds = await Task.Run(() => SteamService.Instance.GetPackageAppIdsAsync(appId))
-                .ConfigureAwait(true);
-
-            if (pkgAppIds.Count > 0)
-            {
-                var appDetails = await Task.Run(() => SteamService.Instance.GetAppInfoBatchAsync(pkgAppIds))
-                    .ConfigureAwait(true);
-
-                var results = new List<Game>();
-                var unresolvedIds = new List<string>();
-
-                foreach (var pkgAppId in pkgAppIds)
-                {
-                    var pkgAppIdStr = pkgAppId.ToString();
-                    appDetails.TryGetValue(pkgAppId, out var d);
-                    var name = d?.Name ?? $"App {pkgAppId}";
-                    var type = d?.Type ?? "DLC";
-
-                    if (name == $"App {pkgAppId}")
-                        unresolvedIds.Add(pkgAppIdStr);
-
-                    results.Add(new Game { AppId = pkgAppIdStr, Name = name, Type = type, IconUrl = string.Empty });
-                }
-
-                if (unresolvedIds.Count > 0)
-                {
-                    var resolved = await SearchService.ResolveAppNamesAsync(unresolvedIds).ConfigureAwait(true);
-                    foreach (var game in results)
-                        if (resolved.TryGetValue(game.AppId, out var resolvedName))
-                            game.Name = resolvedName;
-                }
-
-                _searchController.HideLoading();
-
-                if (!results.Exists(g => g.AppId == appIdStr))
-                    results.Insert(0, new Game
-                    {
-                        AppId = appIdStr,
-                        Name = details != null && details.Name != $"App {appId}" ? details.Name : $"App {appId}",
-                        Type = details?.Type ?? "Package",
-                        IconUrl = string.Empty
-                    });
-
-                _searchController.DisplayResults(results);
-                _notificationManager.ShowToast($"Found {results.Count} apps in package {appId}");
-                return;
-            }
-
-            _searchController.HideLoading();
-
-            var result = CustomMessageBox.Show(
-                $"App ID {appId} was not found on Steam.\n\nDo you want to add it anyway as an unrecognized app?",
-                "App Not Found",
-                MessageBoxButton.YesNo,
-                MessageBoxImage.Question);
-
-            if (result == MessageBoxResult.Yes)
-                OnSearchResultSelected(new Game
-                {
-                    AppId = appIdStr,
-                    Name = $"Unknown App {appId}",
-                    Type = "Unknown",
-                    IconUrl = string.Empty
-                });
-        }
-        catch (Exception ex)
-        {
-            _searchController.HideLoading();
-            _notificationManager.ShowToast("Failed to look up ID: " + ex.Message, false);
-            Logger.Error(ex, "MainWindow.TryAddByAppId");
         }
     }
 
@@ -495,13 +389,13 @@ public partial class MainWindow
         TxtGameSearchPlaceholder.Visibility = string.IsNullOrEmpty(TxtGameSearch.Text)
             ? Visibility.Visible
             : Visibility.Collapsed;
-        _gameListController.SetSearchFilter(TxtGameSearch.Text);
+        _gameListController?.SetSearchFilter(TxtGameSearch.Text);
     }
 
     private void CmbGameTypeFilter_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
         if (CmbGameTypeFilter.SelectedItem is ComboBoxItem item && item.Content is string type)
-            _gameListController.SetTypeFilter(type);
+            _gameListController?.SetTypeFilter(type);
     }
 
     private void ProfileComboBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
@@ -518,12 +412,18 @@ public partial class MainWindow
 
         if (profileName != null)
         {
+            CancelDetails();
+            _lastAddAllGames = null;
+            BtnAddAll.Content = "Add all";
             TxtGameSearch.Text = string.Empty;
             if (CmbGameTypeFilter.SelectedIndex != 0)
                 CmbGameTypeFilter.SelectedIndex = 0;
 
             CancelPendingProfileLoad();
+            _searchController.CancelSearch();
+            _searchController.HideLoading();
             _profileController.SelectProfile(profileName);
+            UpdateResultCount();
             ScheduleGameDetailLoad();
         }
     }
@@ -554,6 +454,7 @@ public partial class MainWindow
 
     private void ScheduleGameDetailLoad()
     {
+        if (App.IsPreview) return;
         if (_profileLoadCts == null) return;
         var token = _profileLoadCts.Token;
 
@@ -847,6 +748,7 @@ public partial class MainWindow
 
     private async void GenerateApplistButton_Click(object sender, RoutedEventArgs e)
     {
+        if (App.IsPreview) { _notificationManager.ShowToast("This operation is disabled in preview mode.", false); return; }
         await GenerateAppListWithChecksAsync();
     }
 
@@ -856,7 +758,7 @@ public partial class MainWindow
         {
             if (_config == null) return false;
 
-            GreenLumaVersionPromptService.EnsureConfirmed(_config);
+            if (!GreenLumaVersionPromptService.TryEnsureConfirmed(_config)) return false;
             UpdateStatus();
 
             if (!_launcher.ValidatePaths(_config))
@@ -948,11 +850,12 @@ public partial class MainWindow
 
     private async void LaunchGreenlumaButton_Click(object sender, RoutedEventArgs e)
     {
+        if (App.IsPreview) { _notificationManager.ShowToast("This operation is disabled in preview mode.", false); return; }
         try
         {
             if (_config == null) return;
 
-            GreenLumaVersionPromptService.EnsureConfirmed(_config);
+            if (!GreenLumaVersionPromptService.TryEnsureConfirmed(_config)) return;
             UpdateStatus();
 
             if (!_launcher.ValidatePaths(_config))
@@ -1059,7 +962,7 @@ public partial class MainWindow
             if (_config == null) return;
 
             var hadGreenLumaPath = !string.IsNullOrWhiteSpace(_config.GreenLumaPath);
-            var dialog = new SettingsDialog(_config);
+            var dialog = new SettingsDialog(_config) { Owner = this };
 
             if (dialog.ShowDialog() == true)
             {
@@ -1132,7 +1035,7 @@ public partial class MainWindow
         {
             TxtGreenLumaVersionStatus.Visibility = Visibility.Collapsed;
             TxtVersionDot.Visibility = Visibility.Collapsed;
-            _notificationManager.SetStatusIndicator(Resources["Danger"] as Brush ?? Brushes.Red, "Not Configured");
+            _notificationManager.SetStatusIndicator(TryFindResource("Danger") as Brush ?? Brushes.Red, "Not Configured");
             return;
         }
 
@@ -1143,7 +1046,7 @@ public partial class MainWindow
         {
             TxtGreenLumaVersionStatus.Visibility = Visibility.Collapsed;
             TxtVersionDot.Visibility = Visibility.Collapsed;
-            _notificationManager.SetStatusIndicator(Resources["Danger"] as Brush ?? Brushes.Red, "Not Configured");
+            _notificationManager.SetStatusIndicator(TryFindResource("Danger") as Brush ?? Brushes.Red, "Not Configured");
             return;
         }
 
@@ -1157,8 +1060,8 @@ public partial class MainWindow
             var isOutdated = IsGreenLumaOutdated(effectiveVersion);
             TxtGreenLumaVersionStatus.Text = isOutdated ? $"GL v{glVersion} (outdated)" : $"GL v{glVersion}";
             TxtGreenLumaVersionStatus.Foreground = isOutdated
-                ? Resources["Warning"] as Brush ?? Brushes.Orange
-                : Resources["TextTert"] as Brush ?? Brushes.Gray;
+                ? TryFindResource("Warning") as Brush ?? Brushes.Orange
+                : TryFindResource("TextTert") as Brush ?? Brushes.Gray;
             TxtGreenLumaVersionStatus.Visibility = Visibility.Visible;
             TxtVersionDot.Visibility = Visibility.Visible;
         }
@@ -1191,7 +1094,7 @@ public partial class MainWindow
             Path.GetFullPath(greenLumaPath),
             StringComparison.OrdinalIgnoreCase);
 
-        var successBrush = Resources["Success"] as Brush ?? Brushes.Green;
+        var successBrush = TryFindResource("Success") as Brush ?? Brushes.Green;
 
         if (isValid && isStealthOnly)
             _notificationManager.SetStatusIndicator(successBrush, "Ready  •  Stealth Mode (Forced)");
@@ -1249,43 +1152,13 @@ public partial class MainWindow
         }
     }
 
-    private async Task HandleUpdateAvailable(UpdateInfo updateInfo)
+    private Task HandleUpdateAvailable(UpdateInfo updateInfo)
     {
-        if (_config?.AutoUpdate == true && !string.IsNullOrWhiteSpace(updateInfo.DownloadUrl))
-        {
-            var result = CustomMessageBox.Show(
-                $"Current Version: {updateInfo.CurrentVersion}\nLatest Version: {updateInfo.LatestVersion}\n\n" +
-                "Auto-update is enabled. The update will be downloaded and installed automatically.\n\n" +
-                "The application will restart to complete the update.",
-                "Update Available",
-                MessageBoxButton.OKCancel,
-                MessageBoxImage.Asterisk);
-
-            if (result == MessageBoxResult.OK)
-            {
-                if (await UpdateService.PerformAutoUpdateAsync(updateInfo.DownloadUrl).ConfigureAwait(false))
-                {
-                    Application.Current.Shutdown();
-                }
-                else
-                {
-                    _notificationManager.ShowToast("Auto-update failed. Please download manually.", false);
-                    LaunchBrowser(updateInfo.DownloadUrl);
-                }
-            }
-        }
-        else
-        {
-            var result = CustomMessageBox.Show(
-                $"Current Version: {updateInfo.CurrentVersion}\nLatest Version: {updateInfo.LatestVersion}\n\n" +
-                "Would you like to download the update now?",
-                "Update Available",
-                MessageBoxButton.YesNo,
-                MessageBoxImage.Asterisk);
-
-            if (result == MessageBoxResult.Yes && !string.IsNullOrWhiteSpace(updateInfo.DownloadUrl))
-                LaunchBrowser(updateInfo.DownloadUrl);
-        }
+        var result = CustomMessageBox.Show(
+            $"Upstream GreenLuma Manager {updateInfo.LatestVersion} is available.\n\nLarpluma will not install upstream binaries over this fork. View its release notes?",
+            "Upstream release", MessageBoxButton.YesNo, MessageBoxImage.Information);
+        if (result == MessageBoxResult.Yes) LaunchBrowser("https://github.com/3vil3vo/GreenLuma-Manager/releases");
+        return Task.CompletedTask;
     }
 
     private void CheckPathsOnStartup()
@@ -1350,6 +1223,7 @@ public partial class MainWindow
         PnlPluginButtons.Children.Clear();
 
         var plugins = PluginService.GetEnabledPlugins();
+        PluginToolbar.Visibility = plugins.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
 
         foreach (var plugin in plugins)
         {
@@ -1370,6 +1244,7 @@ public partial class MainWindow
                 Stretch = Stretch.Uniform
             };
 
+            path.SetResourceReference(System.Windows.Shapes.Shape.FillProperty, "TextSecond");
             button.Content = path;
             button.Click += PluginButton_Click;
             PnlPluginButtons.Children.Add(button);

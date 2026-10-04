@@ -1,4 +1,4 @@
-﻿using System.Collections.Concurrent;
+using System.Collections.Concurrent;
 using System.Net;
 using System.Reflection;
 using System.Text.Json;
@@ -15,52 +15,7 @@ public class CacheEntry<T>
 public static class SteamApiCache
 {
     internal static readonly ConcurrentDictionary<string, CacheEntry<object>> Cache = new();
-    private static readonly ConcurrentDictionary<string, Task<object>> TaskCache = new();
-    private static readonly TimeSpan CacheDurationLocal = TimeSpan.FromMinutes(30);
-    private static DateTime _lastEviction = DateTime.MinValue;
 
-    public static async Task<T> GetOrAddAsync<T>(string key, Func<Task<T>> fetchFunc)
-    {
-        EvictExpired();
-
-        if (Cache.TryGetValue(key, out var entry))
-            if (DateTime.Now < entry.Expiry && entry.Data is T cachedVal)
-                return cachedVal;
-
-        var task = TaskCache.GetOrAdd(key, _ => FetchAndCacheAsync(key, fetchFunc));
-        try
-        {
-            var result = await task.ConfigureAwait(false);
-            return (T)result;
-        }
-        finally
-        {
-            TaskCache.TryRemove(key, out _);
-        }
-    }
-
-    private static void EvictExpired()
-    {
-        if ((DateTime.Now - _lastEviction).TotalMinutes < 5) return;
-        _lastEviction = DateTime.Now;
-        var expired = Cache.Where(kvp => DateTime.Now >= kvp.Value.Expiry).Select(kvp => kvp.Key).ToList();
-        foreach (var key in expired)
-            Cache.TryRemove(key, out _);
-    }
-
-    private static async Task<object> FetchAndCacheAsync<T>(string key, Func<Task<T>> fetchFunc)
-    {
-        var data = await fetchFunc().ConfigureAwait(false);
-
-        if (data != null)
-            Cache[key] = new CacheEntry<object>
-            {
-                Expiry = DateTime.Now.Add(CacheDurationLocal),
-                Data = data
-            };
-
-        return data!;
-    }
 }
 
 public class SearchService
@@ -90,7 +45,9 @@ public class SearchService
 
     public static void SetApiKey(string? apiKey)
     {
-        _steamApiKey = apiKey ?? string.Empty;
+        var next = apiKey ?? string.Empty;
+        if (next != _steamApiKey) { _cacheExpiry = DateTime.MinValue; SteamApiCache.Cache.Clear(); }
+        _steamApiKey = next;
     }
 
     public static string? LookupAppName(string appId)
@@ -320,50 +277,30 @@ public class SearchService
 
         try
         {
-            var queryLower = query.ToLower();
-            var cacheKey = $"search:{queryLower}:{maxResults}";
-
-            var cached = await SteamApiCache.GetOrAddAsync(cacheKey, async () =>
+            ct.ThrowIfCancellationRequested();
+            var queryLower = query.ToLowerInvariant();
+            if (uint.TryParse(query, out _))
             {
-                if (uint.TryParse(query, out _))
-                {
-                    var detailsMap = await FetchGameDetailsBatchAsync([query]).ConfigureAwait(false);
-                    if (detailsMap.TryGetValue(query, out var details) &&
-                        !string.IsNullOrEmpty(details.Name) &&
-                        details.Name != $"App {query}")
-                        return
-                        [
-                            new Game
-                            {
-                                AppId = query,
-                                Name = details.Name,
-                                Type = details.Type,
-                                IconUrl = string.Empty
-                            }
-                        ];
-                }
+                var detailsMap = await FetchGameDetailsBatchAsync([query], ct).ConfigureAwait(false);
+                if (detailsMap.TryGetValue(query, out var details) &&
+                    !string.IsNullOrEmpty(details.Name) && details.Name != $"App {query}")
+                    return [new Game { AppId = query, Name = details.Name, Type = details.Type }];
+            }
 
-                var appList = await GetBestAvailableAppListAsync(ct).ConfigureAwait(false);
-                if (appList is not { Count: > 0 })
-                    return [];
-
-                return appList
-                    .Select(app => (app, score: CalculateScore(app.NameLower, queryLower)))
-                    .Where(x => x.score > 0)
-                    .OrderByDescending(x => x.score)
-                    .ThenBy(x => x.app.Name.Length)
-                    .Take(maxResults)
-                    .Select(x => new Game { AppId = x.app.AppId, Name = x.app.Name, Type = "Game" })
-                    .ToList();
-            }).ConfigureAwait(false);
-
-            return
-            [
-                .. cached.Select(g => new Game { AppId = g.AppId, Name = g.Name, Type = g.Type, IconUrl = g.IconUrl })
-            ];
+            var appList = await GetBestAvailableAppListAsync(ct).ConfigureAwait(false);
+            ct.ThrowIfCancellationRequested();
+            return appList
+                .Select(app => (app, score: CalculateScore(app.NameLower, queryLower)))
+                .Where(x => x.score > 0)
+                .OrderByDescending(x => x.score)
+                .ThenBy(x => x.app.Name.Length)
+                .Take(maxResults)
+                .Select(x => new Game { AppId = x.app.AppId, Name = x.app.Name, Type = "Game" })
+                .ToList();
         }
         catch (Exception ex)
         {
+            if (ex is OperationCanceledException) throw;
             Logger.Error(ex, "SearchService.SearchAsync");
             return [];
         }
@@ -433,7 +370,7 @@ public class SearchService
         }
     }
 
-    private static async Task<Dictionary<string, GameDetails>> FetchGameDetailsBatchAsync(List<string> appIds)
+    private static async Task<Dictionary<string, GameDetails>> FetchGameDetailsBatchAsync(List<string> appIds, CancellationToken ct = default)
     {
         EvictExpiredDetails();
         var results = new Dictionary<string, GameDetails>();
@@ -473,7 +410,7 @@ public class SearchService
                 if (validAppIds.Count == 0) continue;
 
                 var batchResults =
-                    await SteamService.Instance.GetAppInfoBatchAsync(validAppIds.Select(uint.Parse).ToList())
+                    await SteamService.Instance.GetAppInfoBatchAsync(validAppIds.Select(uint.Parse).ToList(), ct)
                         .ConfigureAwait(false);
 
                 foreach (var (appId, details) in batchResults)
@@ -493,7 +430,7 @@ public class SearchService
                 var stillMissing = validAppIds.Where(id => !results.ContainsKey(id)).ToList();
                 if (stillMissing.Count > 0)
                 {
-                    var storeResults = await FetchGameDetailsFromStoreApiAsync(stillMissing).ConfigureAwait(false);
+                    var storeResults = await FetchGameDetailsFromStoreApiAsync(stillMissing, ct).ConfigureAwait(false);
                     foreach (var (appId, details) in storeResults)
                     {
                         results[appId] = details;
@@ -516,6 +453,7 @@ public class SearchService
             }
             catch (Exception ex)
             {
+                if (ex is OperationCanceledException) throw;
                 Logger.Error(ex, "SearchService.FetchBatch");
                 foreach (var appIdStr in batch)
                     if (!results.ContainsKey(appIdStr))
@@ -526,7 +464,7 @@ public class SearchService
     }
 
     private static async Task<Dictionary<string, GameDetails>> FetchGameDetailsFromStoreApiAsync(
-        IReadOnlyList<string> appIds)
+        IReadOnlyList<string> appIds, CancellationToken ct = default)
     {
         var results = new Dictionary<string, GameDetails>();
 
@@ -536,7 +474,7 @@ public class SearchService
 
         foreach (var appId in appIds.Take(StoreApiMaxPerCall))
         {
-            var details = await FetchSingleAppDetailsAsync(appId).ConfigureAwait(false);
+            var details = await FetchSingleAppDetailsAsync(appId, ct).ConfigureAwait(false);
             if (details != null)
                 results[appId] = details;
         }
@@ -544,16 +482,17 @@ public class SearchService
         return results;
     }
 
-    private static async Task<GameDetails?> FetchSingleAppDetailsAsync(string appId)
+    public static async Task<GameDetails?> FetchSingleAppDetailsAsync(string appId, CancellationToken ct = default)
     {
-        await StoreApiThrottle.WaitAsync().ConfigureAwait(false);
+        await StoreApiThrottle.WaitAsync(ct).ConfigureAwait(false);
         try
         {
             var wait = _storeApiAvailableAt - DateTime.UtcNow;
             if (wait > TimeSpan.Zero)
-                await Task.Delay(wait).ConfigureAwait(false);
+                await Task.Delay(wait, ct).ConfigureAwait(false);
 
-            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+            using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            cts.CancelAfter(TimeSpan.FromSeconds(8));
             var url = $"https://store.steampowered.com/api/appdetails?appids={appId}";
             using var response = await HttpClientProvider.Default.GetAsync(url, cts.Token).ConfigureAwait(false);
 
@@ -584,8 +523,12 @@ public class SearchService
 
             return string.IsNullOrWhiteSpace(name)
                 ? null
-                : new GameDetails(appId, SteamService.MapSteamTypeToDisplayType(type ?? "game"), name);
+                : new GameDetails(appId, SteamService.MapSteamTypeToDisplayType(type ?? "game"), name,
+                    ParentAppId: data.TryGetProperty("fullgame", out var parent) && parent.TryGetProperty("appid", out var parentId) ? parentId.ToString() : null,
+                    HeaderImage: data.TryGetProperty("header_image", out var header) ? header.GetString() : null,
+                    ListOfDlc: data.TryGetProperty("dlc", out var dlc) ? dlc.EnumerateArray().Select(x => x.ToString()).ToList() : []);
         }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
         catch (Exception ex)
         {
             Logger.Error(ex, $"SearchService.FetchSingleAppDetails: appId={appId}");
@@ -599,7 +542,7 @@ public class SearchService
 
     public static async Task PopulateGameDetailsAsync(Game game, CancellationToken ct = default)
     {
-        var detailsMap = await FetchGameDetailsBatchAsync([game.AppId]).ConfigureAwait(false);
+        var detailsMap = await FetchGameDetailsBatchAsync([game.AppId], ct).ConfigureAwait(false);
         if (detailsMap.TryGetValue(game.AppId, out var details))
         {
             if (details.Name != $"App {game.AppId}")
@@ -624,7 +567,7 @@ public class SearchService
         CancellationToken ct = default)
     {
         var appIds = games.Select(g => g.AppId).Distinct().ToList();
-        var detailsMap = await FetchGameDetailsBatchAsync(appIds).ConfigureAwait(false);
+        var detailsMap = await FetchGameDetailsBatchAsync(appIds, ct).ConfigureAwait(false);
 
         foreach (var game in games)
             if (detailsMap.TryGetValue(game.AppId, out var details))

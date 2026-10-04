@@ -1,4 +1,4 @@
-﻿using System.IO;
+using System.IO;
 using GreenLuma_Manager.Models;
 using GreenLuma_Manager.Services;
 using Microsoft.Win32;
@@ -8,9 +8,9 @@ namespace GreenLuma_Manager.Utilities;
 public class AutostartManager
 {
     private const string RunKeyPath = "SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Run";
-    private const string BackupKeyPath = "SOFTWARE\\GLM_Manager";
-    private const string GreenLumaValueName = "GreenLumaManager";
-    private const string GreenLumaMonitorValueName = "GreenLumaMonitor";
+    private const string BackupKeyPath = "SOFTWARE\\Larpluma";
+    private const string GreenLumaValueName = "LarplumaManager";
+    private const string GreenLumaMonitorValueName = "LarplumaMonitor";
 
     public static void ManageAutostart(bool replaceSteam, Config? config)
     {
@@ -58,7 +58,7 @@ public class AutostartManager
         {
             if (!string.IsNullOrWhiteSpace(greenlumaPath))
             {
-                var vbsPath = Path.Combine(greenlumaPath, "GLM_Autostart.vbs");
+                var vbsPath = Path.Combine(greenlumaPath, "Larpluma_Autostart.vbs");
                 if (File.Exists(vbsPath)) File.Delete(vbsPath);
             }
         }
@@ -99,7 +99,7 @@ public class AutostartManager
             foreach (var basePath in commonPaths)
                 try
                 {
-                    var vbsPath = Path.Combine(basePath, "GLM_Autostart.vbs");
+                    var vbsPath = Path.Combine(basePath, "Larpluma_Autostart.vbs");
                     if (File.Exists(vbsPath)) File.Delete(vbsPath);
                 }
                 catch (Exception ex)
