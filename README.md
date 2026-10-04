@@ -4,6 +4,8 @@ A Windows fork of [GreenLuma Manager](https://github.com/3vil3vo/GreenLuma-Manag
 
 Repository: [LioK251/larpluma](https://github.com/LioK251/larpluma). Download the Windows executable from [Releases](https://github.com/LioK251/larpluma/releases). The square monochrome **L** icon is defined in [Assets/icon.svg](Assets/icon.svg); regenerate `icon.ico` with `powershell -NoProfile -STA -File scripts/build-icon.ps1` after editing it.
 
+![Larpluma in the dark theme with Steam game and DLC selection](docs/images/larpluma.png)
+
 ## Run
 
 Open `dist/Larpluma.exe` on Windows 10 version 1809 or newer (x64). The packaged executable includes .NET 10. Configure Steam and GreenLuma paths in **Settings → General**. GreenLuma itself is not bundled.
