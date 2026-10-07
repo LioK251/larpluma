@@ -9,12 +9,12 @@
         <ImplicitUsings>enable</ImplicitUsings>
         <UseWPF>true</UseWPF>
         <ApplicationIcon>icon.ico</ApplicationIcon>
-        <Version>0.1.0</Version>
+        <Version>0.1.1</Version>
         <Product>Larpluma</Product>
         <Title>Larpluma</Title>
         <Authors>LioK251</Authors>
         <Company>LioK251</Company>
-        <FileVersion>0.1.0.0</FileVersion>
+        <FileVersion>0.1.1.0</FileVersion>
         <AssemblyVersion>0.0.0.2</AssemblyVersion>
         <Copyright>Copyright © LioK251 2026; original GreenLuma Manager © 3vil3vo</Copyright>
         <PackageIcon>icon.ico</PackageIcon>

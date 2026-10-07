@@ -10,6 +10,17 @@ public partial class MainWindow
     private CancellationTokenSource? _detailCts;
     private uint? _detailId;
     private List<DlcSelection> _detailRows = [];
+    private string? _detailBaseId;
+    private bool _detailPackage;
+
+    private void BindDetails()
+    {
+        DgDetails.ItemsSource = _detailPackage ? _detailRows : _detailRows.Where(x => x.Game.AppId == _detailBaseId).ToList();
+        var children = _detailPackage ? [] : _detailRows.Where(x => x.Game.AppId != _detailBaseId).ToList();
+        DgAdditional.ItemsSource = children;
+        AdditionalContent.Header = $"Additional content ({children.Count})";
+        AdditionalContent.Visibility = children.Count == 0 ? Visibility.Collapsed : Visibility.Visible;
+    }
 
     private async Task RunSearchAsync()
     {
@@ -44,11 +55,14 @@ public partial class MainWindow
         _detailCts = new CancellationTokenSource();
         var token = _detailCts.Token;
         _detailRows = [];
-        DgDetails.ItemsSource = _detailRows;
+        _detailBaseId = null;
+        _detailPackage = false;
+        AdditionalContent.IsExpanded = false;
+        BindDetails();
         DetailPane.Visibility = Visibility.Visible;
         SearchResultsPane.Visibility = Visibility.Collapsed;
         DetailTitle.Text = "Loading game…";
-        DetailStatus.Text = $"Resolving App ID {id} and its DLCs.";
+        DetailStatus.Text = $"Resolving App ID {id} and its additional content.";
         BtnAddSelected.IsEnabled = false;
         BtnUnknown.Visibility = Visibility.Collapsed;
         try
@@ -58,9 +72,11 @@ public partial class MainWindow
             DetailTitle.Text = result.BaseGame?.Name ?? $"App {id}";
             DetailStatus.Text = result.Status;
             if (result.BaseGame == null) BtnUnknown.Visibility = Visibility.Visible;
+            _detailBaseId = result.BaseGame?.AppId;
+            _detailPackage = result.IsPackage;
             var games = result.IsPackage ? result.Dlcs : result.BaseGame == null ? result.Dlcs : new[] { result.BaseGame }.Concat(result.Dlcs);
             _detailRows = games.Select(game => new DlcSelection { Game = game, AlreadyAdded = _gameListController.Games.Any(g => g.AppId == game.AppId) }).ToList();
-            DgDetails.ItemsSource = _detailRows;
+            BindDetails();
             BtnAddSelected.IsEnabled = _detailRows.Any(x => x.CanSelect);
         }
         catch (OperationCanceledException) when (token.IsCancellationRequested) { }
@@ -86,19 +102,23 @@ public partial class MainWindow
         DgResults.SelectedItem = null;
     }
     private async void RetryDetails_Click(object sender, RoutedEventArgs e) { if (_detailId is { } id) await OpenDetailsAsync(id, true); }
-    private void SelectAllDetails_Click(object sender, RoutedEventArgs e) { foreach (var row in _detailRows) row.Selected = row.CanSelect; }
+    private void SelectAllDetails_Click(object sender, RoutedEventArgs e)
+    {
+        foreach (var row in _detailRows) row.Selected = row.CanSelect;
+        if (AdditionalContent.Visibility == Visibility.Visible) AdditionalContent.IsExpanded = true;
+    }
     private void ClearDetails_Click(object sender, RoutedEventArgs e) { foreach (var row in _detailRows) row.Selected = false; }
 
     private void AddSelectedDetails_Click(object sender, RoutedEventArgs e)
     {
         if (_profileController.CurrentProfile == null) { _notificationManager.ShowToast("Select a profile first.", false); return; }
         var selected = _detailRows.Where(x => x.Selected && x.CanSelect).Select(x => x.Game).ToList();
-        if (selected.Count == 0) { _notificationManager.ShowToast("Select the game or DLCs to add.", false); return; }
+        if (selected.Count == 0) { _notificationManager.ShowToast("Select the game or additional content to add.", false); return; }
         var added = new List<Game>();
         foreach (var game in selected)
         {
             if (_gameListController.Games.Any(g => g.AppId == game.AppId)) continue;
-            var copy = new Game { AppId = game.AppId, Name = game.Name, Type = game.Type, IconUrl = game.IconUrl };
+            var copy = new Game { AppId = game.AppId, Name = game.Name, Type = game.Type, IconUrl = game.IconUrl, ParentAppId = game.ParentAppId, ParentName = game.ParentName };
             _gameListController.AddGame(copy);
             added.Add(copy);
         }
@@ -109,7 +129,7 @@ public partial class MainWindow
         BtnAddAll.Visibility = Visibility.Visible;
         UpdateResultCount();
         _detailRows = _detailRows.Select(row => new DlcSelection { Game = row.Game, AlreadyAdded = _gameListController.Games.Any(g => g.AppId == row.Game.AppId) }).ToList();
-        DgDetails.ItemsSource = _detailRows;
+        BindDetails();
         BtnAddSelected.IsEnabled = _detailRows.Any(x => x.CanSelect);
         _notificationManager.ShowToast($"Added {added.Count} entries to {_profileController.CurrentProfile.Name}.");
     }
@@ -121,10 +141,15 @@ public partial class MainWindow
         OnSearchResultSelected(new Game { AppId = id.ToString(), Name = $"Unknown App {id}", Type = "Unknown" });
     }
 
-    public static GameWithDlc PreviewGame() => new(
+    public static GameWithDlc PreviewGame()
+    {
+        var result = new GameWithDlc(
         new Game { AppId = "3764200", Name = "Resident Evil Requiem", Type = "Game" },
         [new Game { AppId = "3990820", Name = "Resident Evil Requiem - Deluxe Kit", Type = "DLC" },
          new Game { AppId = "3990800", Name = "Resident Evil Requiem - Bonus content", Type = "DLC" },
          new Game { AppId = "4460240", Name = "Resident Evil Requiem - Additional content", Type = "DLC" }],
         false, "Preview fixture · 3 DLCs. No Steam installation is modified.");
+        GameDlcService.Associate(result.BaseGame!, result.Dlcs);
+        return result;
+    }
 }

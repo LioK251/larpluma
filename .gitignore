@@ -92,3 +92,37 @@ UpgradeLog*.XML
 UpgradeLog*.htm
 ServiceFabricBackup/
 *.rptproj.bak
+
+# Local caches, temporary files and operating-system metadata
+.cache/
+*.bak
+*.orig
+*.rej
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+Desktop.ini
+.env
+.env.*
+!.env.example
+
+# Loose publish outputs (normal builds go to dist/)
+/Larpluma.exe
+/GreenLuma-Manager.exe
+/*.deps.json
+/*.runtimeconfig.json
+/SHA256SUMS.txt
+
+# Runtime data if LARPLUMA_DATA_DIR points at this checkout
+/profiles/
+/icons/
+/backgrounds/
+/WebView2/
+/WebView2Loader.dll
+/config.json
+/appearance.json
+/plugins.json
+/pending_deletes.json
+/upstream-import.json

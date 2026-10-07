@@ -558,7 +558,7 @@ public sealed class SteamService : IDisposable
             "demo" => "Demo",
             "mod" => "Mod",
             "video" => "Video",
-            "music" => "Soundtrack",
+            "music" or "soundtrack" => "Soundtrack",
             "bundle" => "Bundle",
             "episode" => "Episode",
             "tool" or "advertising" => "Software",

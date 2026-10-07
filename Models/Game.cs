@@ -1,5 +1,6 @@
 ﻿using System.ComponentModel;
 using System.Runtime.Serialization;
+using System.Text.Json.Serialization;
 
 namespace GreenLuma_Manager.Models;
 
@@ -52,7 +53,16 @@ public class Game : INotifyPropertyChanged
 
     [DataMember] public List<string> Depots { get; set; } = [];
 
-    [IgnoreDataMember]
+    [DataMember]
+    public string? ParentAppId
+    {
+        get;
+        set { if (field != value) { field = value; OnPropertyChanged(nameof(ParentAppId)); } }
+    }
+
+    [DataMember] public string? ParentName { get; set; }
+
+    [IgnoreDataMember, JsonIgnore]
     public bool IsInProfile
     {
         get;
@@ -66,7 +76,7 @@ public class Game : INotifyPropertyChanged
         }
     }
 
-    [IgnoreDataMember]
+    [IgnoreDataMember, JsonIgnore]
     public bool IsEditing
     {
         get;

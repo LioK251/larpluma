@@ -21,7 +21,8 @@ namespace GreenLuma_Manager;
 
 public partial class MainWindow
 {
-    public const string Version = "0.1.0";
+    public const string Version = "0.1.1";
+
     public const string UpstreamVersion = "RC2.21";
     private const string LatestGreenLumaVersion = "1.8.6";
     private readonly AppListController _appListController;
@@ -109,6 +110,9 @@ public partial class MainWindow
         }
         else
         {
+            if (WindowTitleBar.Actions is StackPanel actions)
+                foreach (var button in actions.Children.OfType<Button>())
+                    if (System.Windows.Automation.AutomationProperties.GetName(button) == "Restart Steam without GreenLuma") button.IsEnabled = false;
             BtnGenerateApplist.IsEnabled = false;
             BtnLaunchGreenluma.IsEnabled = false;
             _searchController.DisplayResults(new[] { PreviewGame().BaseGame! }.ToList());
@@ -267,7 +271,9 @@ public partial class MainWindow
             AppId = game.AppId,
             Name = game.Name,
             Type = game.Type,
-            IconUrl = game.IconUrl
+            IconUrl = game.IconUrl,
+            ParentAppId = game.ParentAppId,
+            ParentName = game.ParentName
         };
 
         _gameListController.AddGame(newGame);
@@ -297,12 +303,15 @@ public partial class MainWindow
                         existingGame.Name = tempGame.Name;
 
                     existingGame.Type = tempGame.Type;
+                    existingGame.ParentName = tempGame.ParentName ?? existingGame.ParentName;
+                    existingGame.ParentAppId = tempGame.ParentAppId ?? existingGame.ParentAppId;
+                    _gameListController.ApplyFilters();
 
                     if (!string.IsNullOrEmpty(tempGame.IconUrl))
                     {
                         existingGame.IconUrl = tempGame.IconUrl;
-                        _profileController.SaveCurrentProfile();
                     }
+                    _profileController.SaveCurrentProfile();
                 });
             }
             catch (Exception ex)
@@ -310,6 +319,24 @@ public partial class MainWindow
                 Logger.Error(ex, "MainWindow.OnSearchResultSelected.Background");
             }
         });
+    }
+
+    private async void RestartSteam_Click(object sender, RoutedEventArgs e)
+    {
+        if (App.IsPreview) { _notificationManager.ShowToast("Steam restart is disabled in preview mode.", false); return; }
+        if (sender is not Button button || _config == null) return;
+        button.IsEnabled = false;
+        try
+        {
+            await SteamRestartService.RestartAsync(_config.SteamPath, _config.StartSteamMinimized);
+            _notificationManager.ShowToast("Steam restarted without GreenLuma.");
+        }
+        catch (Exception ex)
+        {
+            Logger.Error(ex, "MainWindow.RestartSteam");
+            _notificationManager.ShowToast("Could not restart Steam: " + ex.Message, false);
+        }
+        finally { button.IsEnabled = true; }
     }
 
     private void AddGameButton_Click(object sender, RoutedEventArgs e)
@@ -464,7 +491,7 @@ public partial class MainWindow
             if (token.IsCancellationRequested) return;
 
             var gamesToProcess = _gameListController.Games
-                .Where(g => string.IsNullOrWhiteSpace(g.IconUrl))
+                .Where(g => string.IsNullOrWhiteSpace(g.IconUrl) || string.IsNullOrWhiteSpace(g.ParentAppId) || string.IsNullOrWhiteSpace(g.ParentName))
                 .ToList();
 
             await Parallel.ForEachAsync(
@@ -474,23 +501,26 @@ public partial class MainWindow
                 {
                     try
                     {
-                        var tempGame = new Game { AppId = game.AppId, Name = string.Empty, Type = "Game" };
-                        await SearchService.PopulateGameDetailsAsync(tempGame).ConfigureAwait(false);
+                        var tempGame = new Game { AppId = game.AppId, Name = string.Empty, Type = game.Type };
+                        await SearchService.PopulateGameDetailsAsync(tempGame, ct).ConfigureAwait(false);
 
                         await Application.Current.Dispatcher.InvokeAsync(() =>
                         {
                             if (ct.IsCancellationRequested) return;
 
-                            if (!string.IsNullOrEmpty(tempGame.Name))
+                            if (string.IsNullOrWhiteSpace(game.IconUrl) && !game.IsEditing && !string.IsNullOrEmpty(tempGame.Name))
                                 game.Name = tempGame.Name;
 
                             game.Type = tempGame.Type;
+                            game.ParentName = tempGame.ParentName ?? game.ParentName;
+                            game.ParentAppId = tempGame.ParentAppId ?? game.ParentAppId;
+                            _gameListController.ApplyFilters();
 
                             if (!string.IsNullOrEmpty(tempGame.IconUrl))
                             {
                                 game.IconUrl = tempGame.IconUrl;
-                                _profileController.SaveCurrentProfile();
                             }
+                            _profileController.SaveCurrentProfile();
                         }, DispatcherPriority.Background);
                     }
                     catch (OperationCanceledException)

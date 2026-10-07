@@ -161,6 +161,35 @@
             </Setter.Value>
         </Setter>
     </Style>
+    <Style TargetType="PasswordBox">
+        <Setter Property="Background" Value="{DynamicResource SurfaceBg}" />
+        <Setter Property="Foreground" Value="{DynamicResource Text}" />
+        <Setter Property="CaretBrush" Value="{DynamicResource Text}" />
+        <Setter Property="SelectionBrush" Value="{DynamicResource Selection}" />
+        <Setter Property="BorderBrush" Value="{DynamicResource Border}" />
+        <Setter Property="BorderThickness" Value="1" />
+        <Setter Property="FontFamily" Value="{DynamicResource UiFont}" />
+        <Setter Property="FontSize" Value="{DynamicResource UiSize}" />
+        <Setter Property="Padding" Value="{DynamicResource ControlPadding}" />
+        <Setter Property="MinHeight" Value="{DynamicResource ControlHeight}" />
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="PasswordBox">
+                    <Border x:Name="Box" Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="{TemplateBinding BorderThickness}" CornerRadius="0">
+                        <ScrollViewer x:Name="PART_ContentHost" />
+                    </Border>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsKeyboardFocused" Value="True">
+                            <Setter TargetName="Box" Property="BorderBrush" Value="{DynamicResource Accent}" />
+                        </Trigger>
+                        <Trigger Property="IsEnabled" Value="False">
+                            <Setter Property="Opacity" Value=".4" />
+                        </Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
     <Style TargetType="ToggleButton">
         <Setter Property="Background" Value="Transparent" />
         <Setter Property="Foreground" Value="{DynamicResource TextSecond}" />
@@ -320,7 +349,7 @@
             <Setter.Value>
                 <ControlTemplate TargetType="MenuItem">
                     <Border x:Name="Box" Padding="{TemplateBinding Padding}" Background="Transparent">
-                        <ContentPresenter ContentSource="Header" RecognizesAccessKey="True" />
+                        <ContentPresenter Content="{TemplateBinding Header}" RecognizesAccessKey="True" />
                     </Border>
                     <ControlTemplate.Triggers>
                         <Trigger Property="IsHighlighted" Value="True">
@@ -514,5 +543,31 @@
         <Setter Property="Padding" Value="6" />
         <Setter Property="Margin" Value="0,0,3,0" />
         <Setter Property="WindowChrome.IsHitTestVisibleInChrome" Value="True" />
+    </Style>
+    <Style x:Key="AdditionalContentExpander" TargetType="Expander">
+        <Setter Property="Foreground" Value="{DynamicResource TextSecond}" />
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="Expander">
+                    <StackPanel>
+                        <ToggleButton x:Name="HeaderSite" IsChecked="{Binding IsExpanded, RelativeSource={RelativeSource TemplatedParent}, Mode=TwoWay}" HorizontalAlignment="Left" BorderThickness="0" Padding="6,4" MinHeight="28" AutomationProperties.Name="{Binding Header, RelativeSource={RelativeSource TemplatedParent}}">
+                            <StackPanel Orientation="Horizontal">
+                                <Path x:Name="Chevron" Data="M1 1 L5 5 L1 9" Width="6" Height="10" Stroke="{DynamicResource TextSecond}" StrokeThickness="1.2" RenderTransformOrigin=".5,.5" Margin="0,0,8,0" VerticalAlignment="Center" />
+                                <ContentPresenter Content="{TemplateBinding Header}" RecognizesAccessKey="True" />
+                            </StackPanel>
+                        </ToggleButton>
+                        <Border x:Name="ContentSite" Visibility="Collapsed" BorderBrush="{DynamicResource Border}" BorderThickness="1,0,0,0" Margin="8,2,0,4" Padding="12,0,0,0">
+                            <ContentPresenter />
+                        </Border>
+                    </StackPanel>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsExpanded" Value="True">
+                            <Setter TargetName="ContentSite" Property="Visibility" Value="Visible" />
+                            <Setter TargetName="Chevron" Property="RenderTransform"><Setter.Value><RotateTransform Angle="90" /></Setter.Value></Setter>
+                        </Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
     </Style>
 </ResourceDictionary>

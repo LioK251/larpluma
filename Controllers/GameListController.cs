@@ -1,7 +1,7 @@
 using System.Collections.ObjectModel;
+using System.ComponentModel;
 using System.Windows;
 using System.Windows.Controls;
-using System.Windows.Data;
 using GreenLuma_Manager.Models;
 
 namespace GreenLuma_Manager.Controllers;
@@ -19,10 +19,11 @@ public class GameListController
         _pnlEmptyGames = pnlEmptyGames;
         _notificationManager = notificationManager;
 
-        lstGames.ItemsSource = CollectionViewSource.GetDefaultView(Games);
+        lstGames.ItemsSource = Groups;
     }
 
     public ObservableCollection<Game> Games { get; } = [];
+    public ObservableCollection<GameGroup> Groups { get; } = [];
 
     public string? EditingOriginalName { get; set; }
 
@@ -43,23 +44,12 @@ public class GameListController
 
     public void ApplyFilters()
     {
-        var view = CollectionViewSource.GetDefaultView(Games);
-
-        if (!IsFilterActive && !IsTypeFilterActive)
-        {
-            view.Filter = null;
-            _notificationManager.UpdateGameCount(Games.Count);
-            UpdateGameListState();
-            return;
-        }
-
+        if (Games.Any(x => x.IsEditing)) return;
+        var expanded = Groups.ToDictionary(x => x.AppId, x => x.IsExpanded);
         var searchLower = _searchFilter?.ToLowerInvariant();
         var typeFilter = IsTypeFilterActive ? _typeFilter : null;
-
-        view.Filter = item =>
+        bool Matches(Game game)
         {
-            if (item is not Game game) return false;
-
             if (searchLower != null)
             {
                 var normalizedName = NormalizeForSearch(game.Name.ToLowerInvariant());
@@ -81,11 +71,44 @@ public class GameListController
             }
 
             return true;
-        };
+        }
 
-        var filteredCount = view.Cast<object>().Count();
-        _notificationManager.UpdateGameCount(filteredCount, true);
+        Groups.Clear();
+        foreach (var entries in Games.GroupBy(GroupKey))
+        {
+            var parent = Games.FirstOrDefault(x => x.AppId == entries.Key);
+            var children = entries.Where(x => x != parent && Matches(x)).ToList();
+            var visibleParent = parent != null && Matches(parent) ? parent : null;
+            if (visibleParent == null && children.Count == 0) continue;
+            Groups.Add(new GameGroup
+            {
+                AppId = entries.Key,
+                Name = parent?.Name ?? entries.Select(x => x.ParentName).FirstOrDefault(x => !string.IsNullOrWhiteSpace(x)) ?? $"Game {entries.Key}",
+                Game = visibleParent,
+                Children = children,
+                IsExpanded = IsFilterActive || expanded.GetValueOrDefault(entries.Key)
+            });
+        }
+
+        _notificationManager.UpdateGameCount(Games.Count(Matches), IsFilterActive || IsTypeFilterActive);
         UpdateGameListState();
+    }
+
+    private string GroupKey(Game game)
+    {
+        if (!uint.TryParse(game.ParentAppId, out var parent) || parent == 0 || game.ParentAppId == game.AppId)
+            return game.AppId;
+        // ponytail: linear parent lookup; index App IDs if large profiles become slow.
+        var parentGame = Games.FirstOrDefault(x => x.AppId == game.ParentAppId);
+        // Do not nest malformed parent chains or cycles.
+        return !string.IsNullOrEmpty(parentGame?.ParentAppId) && parentGame.ParentAppId != parentGame.AppId
+            ? game.AppId : game.ParentAppId!;
+    }
+
+    private void MetadataChanged(object? sender, PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName is nameof(Game.ParentAppId) or nameof(Game.Type) ||
+            e.PropertyName == nameof(Game.Name) && sender is Game { IsEditing: false }) ApplyFilters();
     }
 
     private static string NormalizeForSearch(string input)
@@ -99,9 +122,9 @@ public class GameListController
 
     public void ClearGames()
     {
+        foreach (var game in Games) game.PropertyChanged -= MetadataChanged;
         Games.Clear();
-        _notificationManager.UpdateGameCount(0);
-        UpdateGameListState();
+        ApplyFilters();
     }
 
     public void AddGame(Game game)
@@ -109,35 +132,31 @@ public class GameListController
         var sorted = Games.Zip(Games.Skip(1), (a, b) => string.Compare(a.Name, b.Name, StringComparison.OrdinalIgnoreCase) <= 0).All(x => x);
         var index = sorted ? BinarySearchInsertIndex(game.Name) : Games.Count;
         Games.Insert(index, game);
-
-        var view = CollectionViewSource.GetDefaultView(Games);
-        var count = view.Filter == null ? Games.Count : view.Cast<object>().Count();
-        _notificationManager.UpdateGameCount(count, view.Filter != null);
-        UpdateGameListState();
+        game.PropertyChanged += MetadataChanged;
+        ApplyFilters();
     }
 
     public void RemoveGame(Game game)
     {
+        game.PropertyChanged -= MetadataChanged;
         Games.Remove(game);
-
-        var view = CollectionViewSource.GetDefaultView(Games);
-        var count = view.Filter == null ? Games.Count : view.Cast<object>().Count();
-        _notificationManager.UpdateGameCount(count, view.Filter != null);
-        UpdateGameListState();
+        ApplyFilters();
     }
 
     public void LoadGames(IEnumerable<Game> games)
     {
+        var loaded = games.ToList();
+        foreach (var game in Games) game.PropertyChanged -= MetadataChanged;
         Games.Clear();
+        Groups.Clear();
         _searchFilter = null;
         _typeFilter = null;
-        CollectionViewSource.GetDefaultView(Games).Filter = null;
-
-        foreach (var game in games)
+        foreach (var game in loaded)
+        {
             Games.Add(game);
-
-        _notificationManager.UpdateGameCount(Games.Count);
-        UpdateGameListState();
+            game.PropertyChanged += MetadataChanged;
+        }
+        ApplyFilters();
     }
 
     public void UpdateGameListState()
@@ -160,11 +179,14 @@ public class GameListController
         {
             if (EditingOriginalName != null) game.Name = EditingOriginalName;
             EditingOriginalName = null;
+            ApplyFilters();
             return;
         }
 
         game.Name = trimmed;
+        foreach (var child in Games.Where(x => x.ParentAppId == game.AppId)) child.ParentName = trimmed;
         EditingOriginalName = null;
+        ApplyFilters();
     }
 
     public void CancelRename(Game game)
@@ -175,6 +197,7 @@ public class GameListController
             game.Name = EditingOriginalName;
             EditingOriginalName = null;
         }
+        ApplyFilters();
     }
 
     public List<string> GetSelectedAppIds()
@@ -184,14 +207,35 @@ public class GameListController
 
     public void MoveUp(Game game)
     {
-        var idx = Games.IndexOf(game);
-        if (idx > 0) Games.Move(idx, idx - 1);
+        MoveSibling(game, -1);
     }
 
     public void MoveDown(Game game)
     {
-        var idx = Games.IndexOf(game);
-        if (idx >= 0 && idx < Games.Count - 1) Games.Move(idx, idx + 1);
+        MoveSibling(game, 1);
+    }
+
+    private void MoveSibling(Game game, int direction)
+    {
+        if (!Games.Contains(game)) return;
+        var key = GroupKey(game);
+        if (key != game.AppId)
+        {
+            var siblings = Games.Where(x => GroupKey(x) == key && x.AppId != key).ToList();
+            var target = siblings.IndexOf(game) + direction;
+            if (target >= 0 && target < siblings.Count) Games.Move(Games.IndexOf(game), Games.IndexOf(siblings[target]));
+        }
+        else
+        {
+            var keys = Games.Select(GroupKey).Distinct().ToList();
+            var index = keys.IndexOf(key);
+            var target = index + direction;
+            if (target < 0 || target >= keys.Count) return;
+            (keys[index], keys[target]) = (keys[target], keys[index]);
+            var ordered = Games.OrderBy(x => keys.IndexOf(GroupKey(x))).ToList();
+            for (var i = 0; i < ordered.Count; i++) Games.Move(Games.IndexOf(ordered[i]), i);
+        }
+        ApplyFilters();
     }
 
     private int BinarySearchInsertIndex(string name)

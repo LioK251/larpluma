@@ -13,6 +13,53 @@
                 </Setter.Value>
             </Setter>
         </Style>
+        <DataTemplate x:Key="ProfileGameRow">
+            <Border BorderBrush="{DynamicResource Border}" BorderThickness="0,0,0,1" Padding="{DynamicResource ProfileRowPadding}">
+                <Border.ContextMenu>
+                    <ContextMenu>
+                        <MenuItem Header="Move up" Click="MoveGameUp_Click" />
+                        <MenuItem Header="Move down" Click="MoveGameDown_Click" />
+                    </ContextMenu>
+                </Border.ContextMenu>
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+                    <StackPanel>
+                        <TextBlock Text="{Binding Name}" TextTrimming="CharacterEllipsis" MouseLeftButtonDown="GameName_MouseLeftButtonDown" ToolTip="Double-click to rename">
+                            <TextBlock.Style>
+                                <Style TargetType="TextBlock" BasedOn="{StaticResource {x:Type TextBlock}}">
+                                    <Style.Triggers>
+                                        <DataTrigger Binding="{Binding IsEditing}" Value="True">
+                                            <Setter Property="Visibility" Value="Collapsed" />
+                                        </DataTrigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </TextBlock.Style>
+                        </TextBlock>
+                        <TextBox Text="{Binding Name, UpdateSourceTrigger=PropertyChanged}" KeyDown="GameNameEdit_KeyDown" LostFocus="GameNameEdit_LostFocus" IsVisibleChanged="GameNameEdit_IsVisibleChanged">
+                            <TextBox.Style>
+                                <Style TargetType="TextBox" BasedOn="{StaticResource {x:Type TextBox}}">
+                                    <Setter Property="Visibility" Value="Collapsed" />
+                                    <Style.Triggers>
+                                        <DataTrigger Binding="{Binding IsEditing}" Value="True">
+                                            <Setter Property="Visibility" Value="Visible" />
+                                        </DataTrigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </TextBox.Style>
+                        </TextBox>
+                        <StackPanel Orientation="Horizontal" Margin="0,4,0,0">
+                            <TextBlock Text="{Binding Type}" Style="{StaticResource Muted}" />
+                            <TextBlock Text=" · " Style="{StaticResource Muted}" />
+                            <TextBlock Text="{Binding AppId}" Style="{StaticResource Muted}" FontFamily="Consolas" />
+                        </StackPanel>
+                    </StackPanel>
+                    <Button Grid.Column="1" Content="×" Tag="{Binding}" Click="RemoveGameButton_Click" Style="{StaticResource RemoveBtn}" ToolTip="Remove from profile" />
+                </Grid>
+            </Border>
+        </DataTemplate>
     </Window.Resources>
     <Window.InputBindings>
         <KeyBinding Key="F" Modifiers="Control" Command="{Binding FocusSearchCommand}" />
@@ -35,6 +82,9 @@
                     <StackPanel Orientation="Horizontal">
                         <Button ToolTip="Project repository" AutomationProperties.Name="Project repository" Click="GitHubButton_Click" Style="{StaticResource CaptionButton}">
                             <Path Data="M5 10 L10 5 M7 3 L9 1 H13 V5 L11 7 M7 11 L5 13 H1 V9 L3 7" Width="14" Height="14" Stroke="{DynamicResource TextSecond}" StrokeThickness="1.2" />
+                        </Button>
+                        <Button ToolTip="Restart Steam without GreenLuma" AutomationProperties.Name="Restart Steam without GreenLuma" Click="RestartSteam_Click" Style="{StaticResource CaptionButton}">
+                            <Path Data="M12 5 A5 5 0 1 0 12 10 M12 1 V5 H8" Width="14" Height="14" Stroke="{DynamicResource TextSecond}" StrokeThickness="1.2" />
                         </Button>
                         <Button ToolTip="Plugins" AutomationProperties.Name="Plugins" Click="ManagePluginsButton_Click" Style="{StaticResource CaptionButton}">
                             <Path Data="M3 2 H6 V0 H10 V2 H13 V6 H15 V10 H13 V13 H9 V15 H5 V13 H3 V9 H0 V5 H3 Z" Width="16" Height="16" Stroke="{DynamicResource TextSecond}" StrokeThickness="1.2" />
@@ -142,20 +192,40 @@
                                     <Button Content="Select all" Click="SelectAllDetails_Click" Style="{StaticResource IconBtn}" />
                                     <Button Content="Clear selection" Click="ClearDetails_Click" Style="{StaticResource IconBtn}" />
                                 </WrapPanel>
-                                <DataGrid ScrollViewer.HorizontalScrollBarVisibility="Auto" x:Name="DgDetails" Grid.Row="3" IsReadOnly="False" SelectionMode="Extended">
-                                    <DataGrid.Columns>
-                                    <DataGridTemplateColumn Width="40">
-                                            <DataGridTemplateColumn.CellTemplate>
-                                                <DataTemplate>
-                                                    <CheckBox Margin="0" VerticalAlignment="Center" IsChecked="{Binding Selected, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" IsEnabled="{Binding CanSelect}" AutomationProperties.Name="{Binding Game.Name}" />
-                                                </DataTemplate>
-                                            </DataGridTemplateColumn.CellTemplate>
-                                        </DataGridTemplateColumn>
-                                        <DataGridTextColumn Header="Game / DLC" Binding="{Binding Game.Name}" Width="*" IsReadOnly="True" />
-                                        <DataGridTextColumn Header="App ID" Binding="{Binding Game.AppId}" Width="SizeToCells" IsReadOnly="True" />
-                                        <DataGridTextColumn Header="Status" Binding="{Binding Label}" Width="SizeToCells" IsReadOnly="True" />
-                                    </DataGrid.Columns>
-                                </DataGrid>
+                                <ScrollViewer Grid.Row="3" HorizontalScrollBarVisibility="Disabled">
+                                    <StackPanel>
+                                        <DataGrid ScrollViewer.HorizontalScrollBarVisibility="Auto" x:Name="DgDetails" IsReadOnly="False" SelectionMode="Extended">
+                                            <DataGrid.Columns>
+                                            <DataGridTemplateColumn Width="40">
+                                                    <DataGridTemplateColumn.CellTemplate>
+                                                        <DataTemplate>
+                                                            <CheckBox Margin="0" VerticalAlignment="Center" IsChecked="{Binding Selected, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" IsEnabled="{Binding CanSelect}" AutomationProperties.Name="{Binding Game.Name}" />
+                                                        </DataTemplate>
+                                                    </DataGridTemplateColumn.CellTemplate>
+                                                </DataGridTemplateColumn>
+                                                <DataGridTextColumn Header="Game / App" Binding="{Binding Game.Name}" Width="*" IsReadOnly="True" />
+                                                <DataGridTextColumn Header="App ID" Binding="{Binding Game.AppId}" Width="SizeToCells" IsReadOnly="True" />
+                                                <DataGridTextColumn Header="Status" Binding="{Binding Label}" Width="SizeToCells" IsReadOnly="True" />
+                                            </DataGrid.Columns>
+                                        </DataGrid>
+                                        <Expander x:Name="AdditionalContent" Header="Additional content" Style="{StaticResource AdditionalContentExpander}" Visibility="Collapsed" Margin="0,8,0,0">
+                                            <DataGrid ScrollViewer.HorizontalScrollBarVisibility="Auto" x:Name="DgAdditional" IsReadOnly="False" SelectionMode="Extended">
+                                                <DataGrid.Columns>
+                                                <DataGridTemplateColumn Width="40">
+                                                        <DataGridTemplateColumn.CellTemplate>
+                                                            <DataTemplate>
+                                                                <CheckBox Margin="0" VerticalAlignment="Center" IsChecked="{Binding Selected, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" IsEnabled="{Binding CanSelect}" AutomationProperties.Name="{Binding Game.Name}" />
+                                                            </DataTemplate>
+                                                        </DataGridTemplateColumn.CellTemplate>
+                                                    </DataGridTemplateColumn>
+                                                    <DataGridTextColumn Header="Additional content" Binding="{Binding Game.Name}" Width="*" IsReadOnly="True" />
+                                                    <DataGridTextColumn Header="App ID" Binding="{Binding Game.AppId}" Width="SizeToCells" IsReadOnly="True" />
+                                                    <DataGridTextColumn Header="Status" Binding="{Binding Label}" Width="SizeToCells" IsReadOnly="True" />
+                                                </DataGrid.Columns>
+                                            </DataGrid>
+                                        </Expander>
+                                    </StackPanel>
+                                </ScrollViewer>
                                 <Button x:Name="BtnAddSelected" Grid.Row="4" Margin="0,16,0,0" Content="Add selected to profile" Click="AddSelectedDetails_Click" Style="{StaticResource PrimaryBtn}" />
                             </Grid>
                         </Grid>
@@ -214,51 +284,25 @@
                                 <ItemsControl x:Name="LstGames">
                                     <ItemsControl.ItemTemplate>
                                         <DataTemplate>
-                                            <Border BorderBrush="{DynamicResource Border}" BorderThickness="0,0,0,1" Padding="{DynamicResource ProfileRowPadding}">
-                                                <Border.ContextMenu>
-                                                    <ContextMenu>
-                                                        <MenuItem Header="Move up" Click="MoveGameUp_Click" />
-                                                        <MenuItem Header="Move down" Click="MoveGameDown_Click" />
-                                                    </ContextMenu>
-                                                </Border.ContextMenu>
-                                                <Grid>
-                                                    <Grid.ColumnDefinitions>
-                                                        <ColumnDefinition />
-                                                        <ColumnDefinition Width="Auto" />
-                                                    </Grid.ColumnDefinitions>
-                                                    <StackPanel>
-                                                        <TextBlock Text="{Binding Name}" TextTrimming="CharacterEllipsis" MouseLeftButtonDown="GameName_MouseLeftButtonDown" ToolTip="Double-click to rename">
-                                                            <TextBlock.Style>
-                                                                <Style TargetType="TextBlock" BasedOn="{StaticResource {x:Type TextBlock}}">
-                                                                    <Style.Triggers>
-                                                                        <DataTrigger Binding="{Binding IsEditing}" Value="True">
-                                                                            <Setter Property="Visibility" Value="Collapsed" />
-                                                                        </DataTrigger>
-                                                                    </Style.Triggers>
-                                                                </Style>
-                                                            </TextBlock.Style>
-                                                        </TextBlock>
-                                                        <TextBox Text="{Binding Name, UpdateSourceTrigger=PropertyChanged}" KeyDown="GameNameEdit_KeyDown" LostFocus="GameNameEdit_LostFocus" IsVisibleChanged="GameNameEdit_IsVisibleChanged">
-                                                            <TextBox.Style>
-                                                                <Style TargetType="TextBox" BasedOn="{StaticResource {x:Type TextBox}}">
-                                                                    <Setter Property="Visibility" Value="Collapsed" />
-                                                                    <Style.Triggers>
-                                                                        <DataTrigger Binding="{Binding IsEditing}" Value="True">
-                                                                            <Setter Property="Visibility" Value="Visible" />
-                                                                        </DataTrigger>
-                                                                    </Style.Triggers>
-                                                                </Style>
-                                                            </TextBox.Style>
-                                                        </TextBox>
-                                                        <StackPanel Orientation="Horizontal" Margin="0,4,0,0">
-                                                            <TextBlock Text="{Binding Type}" Style="{StaticResource Muted}" />
-                                                            <TextBlock Text=" · " Style="{StaticResource Muted}" />
-                                                            <TextBlock Text="{Binding AppId}" Style="{StaticResource Muted}" FontFamily="Consolas" />
-                                                        </StackPanel>
-                                                    </StackPanel>
-                                                    <Button Grid.Column="1" Content="×" Tag="{Binding}" Click="RemoveGameButton_Click" Style="{StaticResource RemoveBtn}" ToolTip="Remove from profile" />
-                                                </Grid>
-                                            </Border>
+                                            <StackPanel Margin="0,0,0,6">
+                                                <ContentControl Content="{Binding Game}" ContentTemplate="{StaticResource ProfileGameRow}" />
+                                                <TextBlock Text="{Binding Name}" TextTrimming="CharacterEllipsis" ToolTip="Parent game is not included in the filtered profile">
+                                                    <TextBlock.Style>
+                                                        <Style TargetType="TextBlock" BasedOn="{StaticResource {x:Type TextBlock}}">
+                                                            <Setter Property="Margin" Value="0,6" />
+                                                            <Style.Triggers><DataTrigger Binding="{Binding HasGame}" Value="True"><Setter Property="Visibility" Value="Collapsed" /></DataTrigger></Style.Triggers>
+                                                        </Style>
+                                                    </TextBlock.Style>
+                                                </TextBlock>
+                                                <Expander Header="{Binding ContentLabel}" IsExpanded="{Binding IsExpanded, Mode=TwoWay}" AutomationProperties.Name="{Binding Name}">
+                                                    <Expander.Style>
+                                                        <Style TargetType="Expander" BasedOn="{StaticResource AdditionalContentExpander}">
+                                                            <Style.Triggers><DataTrigger Binding="{Binding HasChildren}" Value="False"><Setter Property="Visibility" Value="Collapsed" /></DataTrigger></Style.Triggers>
+                                                        </Style>
+                                                    </Expander.Style>
+                                                    <ItemsControl ItemsSource="{Binding Children}" ItemTemplate="{StaticResource ProfileGameRow}" />
+                                                </Expander>
+                                            </StackPanel>
                                         </DataTemplate>
                                     </ItemsControl.ItemTemplate>
                                 </ItemsControl>
@@ -285,7 +329,7 @@
             </ScrollViewer>
             <Border Grid.Row="3" BorderBrush="{DynamicResource Border}" BorderThickness="0,1,0,0">
                 <DockPanel Margin="24,0">
-                    <TextBlock DockPanel.Dock="Right" Text="Larpluma 0.1 · by LioK251" Style="{StaticResource Muted}" VerticalAlignment="Center" />
+                    <TextBlock DockPanel.Dock="Right" Text="Larpluma 0.1.1 · by LioK251" Style="{StaticResource Muted}" VerticalAlignment="Center" />
                     <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
                         <Rectangle x:Name="StatusIndicator" Width="5" Height="5" Fill="{DynamicResource Success}" Margin="0,0,8,0" />
                         <TextBlock x:Name="TxtStatus" Text="Ready" Style="{StaticResource Muted}" />

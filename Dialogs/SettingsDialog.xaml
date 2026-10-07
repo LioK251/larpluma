@@ -34,7 +34,13 @@
                         <TextBox x:Name="TxtGreenLumaPath" />
                     </DockPanel>
                     <TextBlock Text="Steam Web API key" />
-                    <TextBox x:Name="TxtSteamApiKey" Margin="0,8,0,0" />
+                    <DockPanel Margin="0,8,0,0">
+                        <ToggleButton x:Name="BtnShowSteamApiKey" DockPanel.Dock="Right" Content="Show" Margin="8,0,0,0" Checked="SteamApiKeyVisibility_Changed" Unchecked="SteamApiKeyVisibility_Changed" AutomationProperties.Name="Show Steam Web API key" />
+                        <Grid>
+                            <PasswordBox x:Name="PwdSteamApiKey" AutomationProperties.Name="Steam Web API key" />
+                            <TextBox x:Name="TxtSteamApiKey" Visibility="Collapsed" AutomationProperties.Name="Steam Web API key" />
+                        </Grid>
+                    </DockPanel>
                     <TextBlock Text="Optional for links and IDs. Required for the full, current name-search catalog." Style="{StaticResource DescriptionTxt}" />
                     <TextBlock>
                         <Hyperlink NavigateUri="https://steamcommunity.com/dev/apikey" RequestNavigate="Hyperlink_RequestNavigate">Get a Steam API key</Hyperlink>

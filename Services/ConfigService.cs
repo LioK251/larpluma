@@ -81,7 +81,7 @@ public class ConfigService
                 {
                     SteamPath = jsonData["steam_path"]?.ToString() ?? string.Empty,
                     GreenLumaPath = jsonData["greenluma_path"]?.ToString() ?? string.Empty,
-                    NoHook = jsonData["no_hook"]?.ToObject<bool>() ?? false,
+                    NoHook = jsonData["no_hook"]?.ToObject<bool>() ?? true,
                     DisableUpdateCheck = jsonData["disable_update_check"]?.ToObject<bool>() ?? false,
                     AutoUpdate = jsonData["auto_update"]?.ToObject<bool>() ?? true,
                     LastProfile = jsonData["last_profile"]?.ToString() ?? "default",

@@ -4,7 +4,7 @@ A Windows fork of [GreenLuma Manager](https://github.com/3vil3vo/GreenLuma-Manag
 
 Repository: [LioK251/larpluma](https://github.com/LioK251/larpluma). Download the Windows executable from [Releases](https://github.com/LioK251/larpluma/releases). The square monochrome **L** icon is defined in [Assets/icon.svg](Assets/icon.svg); regenerate `icon.ico` with `powershell -NoProfile -STA -File scripts/build-icon.ps1` after editing it.
 
-![Larpluma in the dark theme with Steam game and DLC selection](docs/images/larpluma.png)
+![Larpluma 0.1.1 with collapsible additional content](docs/images/larpluma.png)
 
 ## Run
 
@@ -15,10 +15,16 @@ The original profile tools, AppList import/generation, game renaming and orderin
 ## Steam search
 
 - Paste an App ID, for example `3764200`, or a Store link such as `https://store.steampowered.com/app/3764200/Resident_Evil_Requiem/`.
-- Alternatively, search by name. Selecting a result opens the game and its DLC list. Select the base game and/or individual DLCs, then choose **Add selected to profile**. Nothing is added merely by searching or opening a game.
+- Alternatively, search by name. Selecting a result opens the game with a collapsed **Additional content** dropdown. Expand it to select DLCs, soundtracks, or other linked items; select the base game and/or individual items, then choose **Add selected to profile**. Nothing is added merely by searching or opening a game.
 - Name search uses the bundled upstream catalog without an API key. Add a Steam Web API key in General settings for current catalog coverage. Link/App ID lookup and DLC discovery do not require this key.
-- DLC lookup combines Steam product information and the Store API, deduplicates IDs, and resolves all returned DLCs without the old 20-result limit. A DLC link follows its parent game when Steam supplies that relationship.
-- Unavailable sources or unresolved names produce a partial-result message and a Retry action. A lookup failure is not reported as “no DLC.” Unresolved App IDs require an explicit confirmation before being added. Steam can only return DLCs exposed by its APIs.
+- DLC lookup combines Steam product information and the Store API, deduplicates IDs, and resolves all returned DLCs without the old 20-result limit. A DLC, soundtrack, or other linked app follows its parent game when Steam supplies that relationship. Soundtracks and other content returned by Steam retain their own types.
+- Unavailable sources or unresolved names produce a partial-result message and a Retry action. A lookup failure is not reported as “no DLC.” Unresolved App IDs require an explicit confirmation before being added. Discovery is limited to additional content and parent relationships exposed by Steam's APIs.
+
+Saved profiles also group additional content beneath each game, collapsed by default. Content-only profiles show a parent heading without adding the base game to the profile or generated AppList. Unresolved entries remain visible. Expanding or collapsing does not change selection; **Select all** includes hidden items and reveals them.
+
+The Steam Web API key in Settings is masked by default; **Show / Hide** reveals or conceals it while preserving edits.
+
+The restart icon beside **Project repository** closes Steam and reopens `Steam.exe` directly, without invoking GreenLuma. The same action remains in **Settings -> Advanced**. Stealth mode defaults to enabled for new configurations; saved preferences are preserved.
 
 Search filters, per-row Add, bulk Add/Undo, and the profile filter remain available. Keyboard shortcuts: **Ctrl+F** search, **Ctrl+G** generate, **Ctrl+L** launch, **Ctrl+S** stealth, **Ctrl+Tab** next profile.
 

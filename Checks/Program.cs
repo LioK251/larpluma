@@ -33,6 +33,7 @@ internal static class Program
     [STAThread]
     public static int Main(string[] args)
     {
+        if (SteamRestartChecks.IsFixture) return SteamRestartChecks.RunFixture(args);
         var output = args.FirstOrDefault(x => x.StartsWith("--output="))?[9..] ?? Path.Combine(Environment.CurrentDirectory, "artifacts", "checks");
         _artifacts = Path.GetFullPath(output);
         Directory.CreateDirectory(_artifacts);
@@ -63,6 +64,7 @@ internal static class Program
                 await TestAppLists();
                 TestPlugins();
                 await TestUi();
+                await SteamRestartChecks.Run(Check, _artifacts);
                 PrivateDesktop.Run(Path.Combine(_artifacts, "native"));
                 Check(File.Exists(Path.Combine(_artifacts, "native", "native-pass.txt")), "Real window controls passed on a private desktop");
                 if (args.Contains("--media")) await TestMedia();
@@ -80,6 +82,8 @@ internal static class Program
 
     private static void TestInputs()
     {
+        Check(new Config().NoHook && JsonSerializer.Deserialize<Config>("{}")!.NoHook, "Stealth is enabled for new and unspecified configurations");
+        Check(!JsonSerializer.Deserialize<Config>("{\"NoHook\":false}")!.NoHook, "An explicitly saved normal-mode preference is preserved");
         var inputs = new[] { "3764200", " 3764200 ", "https://store.steampowered.com/app/3764200/Resident_Evil_Requiem/", "https://store.steampowered.com/app/3764200/?l=english#details" };
         foreach (var input in inputs) Check(SteamInput.Parse(input).AppId == 3764200, "App input normalization");
         Check(SteamInput.Parse("Resident Evil").Name == "Resident Evil", "Name input");
@@ -208,25 +212,44 @@ internal static class Program
         Layout(window);
         await Task.Delay(150);
         var details = (DataGrid)window.FindName("DgDetails");
-        Check(details.Items.Count == 4, "Base game and every fixture DLC displayed");
-        Check(details.Items.Cast<DlcSelection>().All(x => !x.Selected), "DLC selection starts empty");
+        var content = (DataGrid)window.FindName("DgAdditional");
+        var expander = (Expander)window.FindName("AdditionalContent");
+        IEnumerable<DlcSelection> Rows() => details.Items.Cast<DlcSelection>().Concat(content.Items.Cast<DlcSelection>());
+        Check(details.Items.Count == 1 && content.Items.Count == 3, "Base game and all additional content have separate rows");
+        Check(!expander.IsExpanded && !content.IsVisible, "Additional content starts collapsed");
+        Check(Rows().All(x => !x.Selected), "Content selection starts empty");
+        var restartButton = WindowFrameChecks.Descendants<Button>(window).Single(x => System.Windows.Automation.AutomationProperties.GetName(x) == "Restart Steam without GreenLuma");
+        Check(!restartButton.IsEnabled, "Title-bar Steam restart is disabled in preview");
+        Capture(window, "content-collapsed-dark.png");
+        expander.IsExpanded = true; Layout(window); await Task.Delay(150); Layout(window);
+        Check(WindowFrameChecks.Descendants<CheckBox>(content).Count() == content.Items.Count, "Every expanded content row renders a checkbox");
+        Check(WindowFrameChecks.Descendants<TextBlock>(content).Any(x => x.Text == content.Items.Cast<DlcSelection>().First().Game.Name), "Expanded content names render visibly");
+        var peer = new System.Windows.Automation.Peers.ExpanderAutomationPeer(expander);
+        var expandPattern = (System.Windows.Automation.Provider.IExpandCollapseProvider)peer.GetPattern(System.Windows.Automation.Peers.PatternInterface.ExpandCollapse)!;
+        Check(expandPattern.ExpandCollapseState == System.Windows.Automation.ExpandCollapseState.Expanded, "Expander exposes its state to accessibility tools");
         WindowFrameChecks.Validate(window, Check);
-        foreach (var checkbox in WindowFrameChecks.Descendants<CheckBox>(details))
+        foreach (var checkbox in WindowFrameChecks.Descendants<CheckBox>(content))
         {
             DependencyObject parent = checkbox;
             while (parent is not DataGridCell) parent = VisualTreeHelper.GetParent(parent);
             var cell = (DataGridCell)parent;
-            Check(checkbox.ActualWidth <= cell.ActualWidth - cell.Padding.Left - cell.Padding.Right, "DLC checkboxes fit without clipping square borders");
+            Check(checkbox.ActualWidth <= cell.ActualWidth - cell.Padding.Left - cell.Padding.Right, "Additional-content checkboxes fit without clipping borders");
         }
+        content.Items.Cast<DlcSelection>().First().Selected = true;
+        expandPattern.Collapse(); Layout(window);
+        Check(!content.IsVisible && content.Items.Cast<DlcSelection>().First().Selected, "Collapse retains hidden selections");
+        Invoke(window, "ClearDetails_Click", window, new RoutedEventArgs());
+        Check(Rows().All(x => !x.Selected), "Clear includes collapsed content");
+        Invoke(window, "SelectAllDetails_Click", window, new RoutedEventArgs()); Layout(window);
+        Check(expander.IsExpanded && Rows().All(x => x.Selected), "Select all includes and reveals hidden content");
         Capture(window, "dlc-dark.png");
-        Invoke(window, "SelectAllDetails_Click", window, new RoutedEventArgs());
         Invoke(window, "AddSelectedDetails_Click", window, new RoutedEventArgs());
         var profile = (ComboBox)window.FindName("CmbProfile");
         var current = ProfileService.Load((string)profile.SelectedItem)!;
         Check(current.Games.Count == 4, "Add selected saves game and DLCs");
-        Check(details.Items.Cast<DlcSelection>().All(x => x.AlreadyAdded && !x.CanSelect), "Duplicate selection disabled");
+        Check(Rows().All(x => x.AlreadyAdded && !x.CanSelect), "Duplicate selection disabled");
         await (Task)Invoke(window, "OpenDetailsAsync", (uint)3764200, false)!;
-        Check(details.Items.Cast<DlcSelection>().All(x => x.AlreadyAdded), "Already-added state retained when reopening");
+        Check(Rows().All(x => x.AlreadyAdded) && !expander.IsExpanded, "Already-added state retained when reopening");
         Invoke(window, "BackToResults_Click", window, new RoutedEventArgs());
         var undo = (Button)window.FindName("BtnAddAll");
         Invoke(window, "AddAllGames_Click", undo, new RoutedEventArgs());
@@ -241,11 +264,25 @@ internal static class Program
         controller.StartRename(first); controller.CommitRename(first, "Renamed");
         controller.StartRename(first); first.Name = "Temporary"; controller.CancelRename(first);
         Check(first.Name == "Renamed" && !first.IsEditing, "Rename commit and cancel preserve the name");
+        await TestContentGroups(window, controller);
         controller.LoadGames([]);
         AppearanceService.Apply(Appearance.Light()); Layout(window); await Task.Delay(150); Capture(window, "main-light.png");
         foreach (var scale in new[] { .85, 1.5 }) { var theme = new Appearance { Scale = scale, Comfortable = true }; AppearanceService.Apply(theme); window.Width = 960; window.Height = 620; Layout(window); await Task.Delay(100); Check(window.ActualWidth == 960, "Minimum window layout"); Capture(window, "scale-" + scale.ToString(System.Globalization.CultureInfo.InvariantCulture) + ".png"); }
         AppearanceService.Apply(new()); window.Width = 1120; window.Height = 760;
-        var settings = new SettingsDialog(new Config { FirstRun = false });
+        var settings = new SettingsDialog(new Config { FirstRun = false, SteamApiKey = "test-only-api-key" });
+        Layout(settings);
+        var maskedKey = (PasswordBox)settings.FindName("PwdSteamApiKey");
+        var visibleKey = (TextBox)settings.FindName("TxtSteamApiKey");
+        var revealKey = (System.Windows.Controls.Primitives.ToggleButton)settings.FindName("BtnShowSteamApiKey");
+        Check(maskedKey.Password == "test-only-api-key" && maskedKey.IsVisible && !visibleKey.IsVisible && visibleKey.Text == "", "API key loads masked without a plaintext visual field");
+        revealKey.IsChecked = true;
+        Check(visibleKey.Text == "test-only-api-key" && visibleKey.IsVisible && !maskedKey.IsVisible && (string)revealKey.Content == "Hide", "Show reveals the existing API key");
+        visibleKey.Text = "edited-fixture-key"; revealKey.IsChecked = false;
+        Check(maskedKey.Password == "edited-fixture-key" && visibleKey.Text == "" && !visibleKey.IsVisible && (string)revealKey.Content == "Show", "Hide preserves edits and clears the plaintext field");
+        maskedKey.Password = "masked-fixture-key"; revealKey.IsChecked = true;
+        Check(visibleKey.Text == "masked-fixture-key", "Masked edits survive reveal");
+        revealKey.IsChecked = false;
+        Check(((RadioButton)settings.FindName("RbDeployStealth")).IsChecked == true, "Deployment defaults to Stealth for new configurations");
         foreach (var page in new[] { "General", "System", "Advanced", "Appearance" })
         {
             ((RadioButton)settings.FindName("Nav" + page)).IsChecked = true;
@@ -253,6 +290,15 @@ internal static class Program
             WindowFrameChecks.Validate(settings, Check);
         }
         var editor = (AppearanceEditor)settings.FindName("ViewAppearance");
+        foreach (var revealed in new[] { false, true })
+        {
+            var keyConfig = new Config { FirstRun = false };
+            var keyDialog = new SettingsDialog(keyConfig) { WindowStartupLocation = WindowStartupLocation.Manual, Left = -12000, Top = -12000, ShowInTaskbar = false, ShowActivated = false };
+            ((PasswordBox)keyDialog.FindName("PwdSteamApiKey")).Password = " saved-test-key ";
+            ((System.Windows.Controls.Primitives.ToggleButton)keyDialog.FindName("BtnShowSteamApiKey")).IsChecked = revealed;
+            _ = Dispatcher.CurrentDispatcher.BeginInvoke(new Action(() => Invoke(keyDialog, "Ok_Click", keyDialog, new RoutedEventArgs())));
+            Check(keyDialog.ShowDialog() == true && keyConfig.SteamApiKey == "saved-test-key", "Saving preserves the API key in masked and revealed modes");
+        }
         AppearanceService.Apply(Appearance.Light()); editor.Revert();
         Check(AppearanceService.Current.Canvas == "#141414", "Discard restores saved theme");
         var plugins = new PluginsDialog(); Layout(plugins); Capture(plugins, "plugins.png");
@@ -277,6 +323,87 @@ internal static class Program
         plugins.Close(); create.Close(); window.Close();
     }
 
+    private static async Task TestContentGroups(MainWindow window, GameListController controller)
+    {
+        var game = new Game { AppId = "10", Name = "Onimusha (preview fixture)", Type = "Game" };
+        var dlc = new Game { AppId = "20", Name = "DLC 1", Type = "DLC" };
+        var soundtrack = new Game { AppId = "30", Name = "Original soundtrack", Type = "Soundtrack" };
+        var art = new Game { AppId = "40", Name = "Digital art book", Type = "Software" };
+        GameDlcService.Associate(game, [dlc, soundtrack, art]);
+        var other = new Game { AppId = "50", Name = "Another game", Type = "Game" };
+        controller.LoadGames([game, dlc, soundtrack, art, other]); Layout(window);
+        Check(controller.Groups.Count == 2 && controller.Groups[0].Children.Count == 3 && !controller.Groups[0].IsExpanded, "DLC, soundtrack and artwork share a collapsed parent group");
+        Check(controller.Groups[1].HasGame && !controller.Groups[1].HasChildren, "Games without content have no dropdown");
+        var list = (ItemsControl)window.FindName("LstGames");
+        var groupExpander = WindowFrameChecks.Descendants<Expander>(list).First(x => x.DataContext is GameGroup { AppId: "10" });
+        var toggle = WindowFrameChecks.Descendants<System.Windows.Controls.Primitives.ToggleButton>(groupExpander).First();
+        Check(toggle.Focusable && toggle.FocusVisualStyle != null, "Group header supports keyboard focus with a visible indicator");
+        toggle.IsChecked = true; Layout(window);
+        Check(controller.Groups[0].IsExpanded && groupExpander.IsExpanded, "Native toggle expands profile content");
+        Capture(window, "profile-expanded-dark.png");
+        AppearanceService.Apply(Appearance.Light()); Layout(window); Capture(window, "profile-expanded-light.png");
+        AppearanceService.Apply(new());
+        controller.SetSearchFilter("soundtrack"); Layout(window);
+        Check(controller.Groups.Count == 1 && !controller.Groups[0].HasGame && controller.Groups[0].Children.SequenceEqual([soundtrack]) && controller.Groups[0].IsExpanded, "Child name search retains and expands its parent heading");
+        controller.SetSearchFilter(null); controller.SetTypeFilter("Other");
+        Check(controller.Groups.Count == 1 && controller.Groups[0].Children.SequenceEqual([soundtrack, art]), "Other filter includes soundtracks and artwork");
+        controller.SetTypeFilter("DLC");
+        Check(controller.Groups.Single().Children.SequenceEqual([dlc]), "DLC filter keeps parent context");
+        Check(((TextBlock)window.FindName("TxtGameCount")).Text.Contains("1"), "Filtered counts include actual entries only");
+        controller.SetTypeFilter("Game");
+        Check(controller.Groups.Count == 2 && controller.Groups.All(x => x.HasGame && !x.HasChildren), "Game filter includes base games only");
+        controller.SetTypeFilter(null);
+        controller.MoveUp(art);
+        Check(controller.Groups[0].Children.SequenceEqual([dlc, art, soundtrack]), "Child move changes sibling ordering");
+        controller.MoveDown(game);
+        Check(controller.Groups[0].AppId == other.AppId && controller.Groups[1].Children.SequenceEqual([dlc, art, soundtrack]), "Parent move keeps its content together");
+        controller.LoadGames(controller.Games.ToList());
+        Check(controller.Groups[0].AppId == other.AppId && controller.Groups.All(x => !x.IsExpanded), "Profile reload preserves ordering and resets expansion");
+        controller.StartRename(game); controller.CommitRename(game, "Renamed game");
+        controller.RemoveGame(game);
+        Check(!controller.Groups[1].HasGame && controller.Groups[1].Name == "Renamed game", "Removing parent leaves content under the renamed display-only heading");
+        Check(!controller.GetSelectedAppIds().Contains("10"), "Display-only parent is not included in AppList IDs");
+        var profile = new Profile { Name = "Content roundtrip", Games = controller.Games.ToList() };
+        ProfileService.Save(profile);
+        var loaded = ProfileService.Load(profile.Name)!;
+        Check(loaded.Games.Single(x => x.AppId == "30").ParentAppId == "10" && loaded.Games.Single(x => x.AppId == "30").ParentName == "Renamed game", "Parent metadata survives profile save and load");
+        var export = Path.Combine(_artifacts, "content-profile.json"); ProfileService.Export(profile, export);
+        Check(ProfileService.Import(export)!.Games.Select(x => x.AppId).SequenceEqual(profile.Games.Select(x => x.AppId)), "Content export and import preserve the flat ordered entries");
+        Check(!File.ReadAllText(export).Contains("IsExpanded") && !File.ReadAllText(export).Contains("IsEditing"), "Display state is not serialized");
+        var folder = Path.Combine(_artifacts, "content-applist");
+        await GreenLumaService.GenerateAppListAsync(profile, new Config { GreenLumaPath = folder });
+        var appList = Path.Combine(folder, "AppList");
+        Check(Directory.GetFiles(appList).Select(File.ReadAllText).Order().SequenceEqual(profile.Games.Select(x => x.AppId).Order()), "Legacy AppList includes all collapsed content and no display-only parent");
+        var ini = (Task<bool>)typeof(GreenLumaService).GetMethod("GenerateIniAppListAsync", BindingFlags.NonPublic | BindingFlags.Static)!.Invoke(null, [appList, controller.GetSelectedAppIds()])!;
+        Check(await ini && GreenLumaService.ReadAppIdsFromIni(Path.Combine(appList, "AppList.ini")).SequenceEqual(controller.GetSelectedAppIds()), "INI AppList preserves collapsed content ordering");
+        var legacy = JsonSerializer.Deserialize<Profile>("{\"Name\":\"Old\",\"Games\":[{\"AppId\":\"60\",\"Name\":\"Unresolved DLC\",\"Type\":\"DLC\"}]}")!;
+        controller.LoadGames(legacy.Games);
+        Check(controller.Groups.Single().Game == legacy.Games[0], "Old unresolved content stays visible as a standalone row");
+        legacy.Games[0].ParentName = "Old base game"; legacy.Games[0].ParentAppId = "70";
+        Check(!controller.Groups.Single().HasGame && controller.Groups[0].Name == "Old base game", "Background parent metadata regroups existing entries");
+        legacy.Games[0].ParentAppId = "60";
+        Check(controller.Groups.Single().HasGame, "Self-parent metadata cannot hide an entry");
+        Check(SteamService.MapSteamTypeToDisplayType("music") == "Soundtrack" && SteamService.MapSteamTypeToDisplayType("soundtrack") == "Soundtrack", "Both Steam soundtrack type names are recognized");
+
+        controller.StartRename(game); controller.CommitRename(game, "Onimusha (preview fixture)");
+        controller.LoadGames([game, dlc, soundtrack, art]);
+        controller.Groups[0].IsExpanded = true; controller.ApplyFilters();
+        await (Task)Invoke(window, "OpenDetailsAsync", (uint)3764200, false)!;
+        ((Expander)window.FindName("AdditionalContent")).IsExpanded = true;
+        ((FrameworkElement)window.FindName("Toast")).Visibility = Visibility.Collapsed;
+        Layout(window); await Task.Delay(150); Layout(window);
+        Check(WindowFrameChecks.Descendants<TextBlock>(window).Any(x => x.Text.Contains("Larpluma " + MainWindow.Version)), "Interface displays the full release version");
+        Capture(window, "content-expanded-dark.png");
+        foreach (var scale in new[] { .85, 1.5 })
+        {
+            AppearanceService.Apply(new Appearance { Scale = scale, Comfortable = true });
+            window.Width = 960; window.Height = 620; Layout(window); await Task.Delay(150); Layout(window);
+            WindowFrameChecks.Validate(window, Check); Capture(window, "content-scale-" + scale.ToString(System.Globalization.CultureInfo.InvariantCulture) + ".png");
+        }
+        AppearanceService.Apply(new()); window.Width = 1120; window.Height = 760;
+        Invoke(window, "BackToResults_Click", window, new RoutedEventArgs());
+    }
+
     private static async Task TestLive()
     {
         App.IsPreview = false;
@@ -289,6 +416,9 @@ internal static class Program
         Check(fromDlc.BaseGame?.AppId == "3764200" && fromDlc.Dlcs.Count == result.Dlcs.Count, "DLC App ID follows its parent game and sibling DLCs");
         Console.WriteLine($"LIVE: {result.BaseGame!.Name}, {result.Dlcs.Count} DLCs, partial={result.Partial}");
         File.WriteAllText(Path.Combine(_artifacts, "live-result.json"), JsonSerializer.Serialize(result, new JsonSerializerOptions { WriteIndented = true }));
+        var soundtrack = await GameDlcService.GetAsync(1092840, limit.Token, true);
+        Check(soundtrack.BaseGame?.AppId == "504230" && soundtrack.Dlcs.Any(x => x.AppId == "1092840" && x.Type == "Soundtrack" && x.ParentAppId == "504230"), "Live soundtrack follows its game and remains in additional content");
+        File.WriteAllText(Path.Combine(_artifacts, "live-soundtrack.json"), JsonSerializer.Serialize(soundtrack, new JsonSerializerOptions { WriteIndented = true }));
         SteamService.Instance.Dispose(); App.IsPreview = true;
     }
 

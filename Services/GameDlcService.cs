@@ -44,16 +44,36 @@ public static class GameDlcService
             return new(null, [], true, "Could not resolve this App ID. Check your connection and retry, or explicitly add it as an unknown app.");
         }
         var parent = details.ParentAppId ?? store?.ParentAppId;
-        if (followParent && details.Type == "DLC" && uint.TryParse(parent, out var parentId) && parentId > 0 && parentId != id)
-            return await FetchAsync(parentId, ct, false);
+        if (followParent && uint.TryParse(parent, out var parentId) && parentId > 0 && parentId != id)
+        {
+            var result = await FetchAsync(parentId, ct, false);
+            if (result.BaseGame != null && !result.IsPackage)
+            {
+                if (result.Dlcs.All(x => x.AppId != id.ToString())) result.Dlcs.Add(ToGame(details));
+                Associate(result.BaseGame, result.Dlcs);
+                return result with { Status = Describe(result.Dlcs.Count, result.Partial) };
+            }
+        }
         var ids = MergeIds(id.ToString(), steam?.ListOfDlc, store?.ListOfDlc);
         var dlcs = await ResolveAsync(ids, ct);
         var partial = store == null || steam == null || dlcs.Any(x => x.Name == $"App {x.AppId}");
-        var status = partial
-            ? $"{dlcs.Count} DLCs discovered · some Steam data could not be retrieved. Retry to refresh; unresolved entries remain visible by ID."
-            : dlcs.Count == 0 ? "No DLCs listed by Steam." : $"{dlcs.Count} DLCs · select the game and DLCs you want to add.";
-        return new(ToGame(details), dlcs, partial, status);
+        var baseGame = ToGame(details);
+        Associate(baseGame, dlcs);
+        return new(baseGame, dlcs, partial, Describe(dlcs.Count, partial));
     }
+
+    public static void Associate(Game baseGame, IEnumerable<Game> content)
+    {
+        foreach (var child in content)
+        {
+            child.ParentName = baseGame.Name;
+            child.ParentAppId = baseGame.AppId;
+        }
+    }
+
+    private static string Describe(int count, bool partial) => partial
+        ? $"{count} additional items discovered · some Steam data could not be retrieved. Retry to refresh; unresolved entries remain visible by ID."
+        : count == 0 ? "No additional content listed by Steam." : $"{count} additional items · select the game and content you want to add.";
 
     public static List<string> MergeIds(string baseId, params IEnumerable<string>?[] lists) => lists
         .Where(x => x != null).SelectMany(x => x!).Select(x => x.Trim())
@@ -79,7 +99,7 @@ public static class GameDlcService
             new Game { AppId = id, Name = $"App {id}", Type = "DLC" }).OrderBy(x => x.Name, StringComparer.OrdinalIgnoreCase).ToList();
     }
 
-    private static Game ToGame(GameDetails value) => new() { AppId = value.AppId, Name = value.Name, Type = value.Type };
-    private static Game CloneGame(Game value) => new() { AppId = value.AppId, Name = value.Name, Type = value.Type, IconUrl = value.IconUrl };
+    private static Game ToGame(GameDetails value) => new() { AppId = value.AppId, Name = value.Name, Type = value.Type, ParentAppId = value.ParentAppId };
+    private static Game CloneGame(Game value) => new() { AppId = value.AppId, Name = value.Name, Type = value.Type, IconUrl = value.IconUrl, ParentAppId = value.ParentAppId, ParentName = value.ParentName };
     private static GameWithDlc Copy(GameWithDlc value) => value with { BaseGame = value.BaseGame == null ? null : CloneGame(value.BaseGame), Dlcs = value.Dlcs.Select(CloneGame).ToList() };
 }

@@ -284,7 +284,7 @@ public class SearchService
                 var detailsMap = await FetchGameDetailsBatchAsync([query], ct).ConfigureAwait(false);
                 if (detailsMap.TryGetValue(query, out var details) &&
                     !string.IsNullOrEmpty(details.Name) && details.Name != $"App {query}")
-                    return [new Game { AppId = query, Name = details.Name, Type = details.Type }];
+                    return [new Game { AppId = query, Name = details.Name, Type = details.Type, ParentAppId = details.ParentAppId }];
             }
 
             var appList = await GetBestAvailableAppListAsync(ct).ConfigureAwait(false);
@@ -546,8 +546,17 @@ public class SearchService
         if (detailsMap.TryGetValue(game.AppId, out var details))
         {
             if (details.Name != $"App {game.AppId}")
+            {
                 game.Name = details.Name;
-            game.Type = details.Type;
+                game.Type = details.Type;
+            }
+
+            if (uint.TryParse(details.ParentAppId, out var parentId) && parentId > 0 && details.ParentAppId != game.AppId)
+            {
+                var parent = (await FetchGameDetailsBatchAsync([details.ParentAppId], ct).ConfigureAwait(false)).GetValueOrDefault(details.ParentAppId);
+                if (parent != null && parent.Name != $"App {parentId}") game.ParentName = parent.Name;
+                game.ParentAppId = details.ParentAppId;
+            }
 
             var iconPath = await IconCacheService.CacheIconForGameAsync(details).ConfigureAwait(false);
             if (!string.IsNullOrEmpty(iconPath))
@@ -575,6 +584,8 @@ public class SearchService
                 if (!string.IsNullOrEmpty(details.Name) && details.Name != $"App {game.AppId}")
                     game.Name = details.Name;
                 game.Type = details.Type;
+                if (!string.IsNullOrWhiteSpace(details.ParentAppId) && details.ParentAppId != game.AppId)
+                    game.ParentAppId = details.ParentAppId;
             }
 
         onTypesLoaded?.Invoke();

@@ -9,7 +9,7 @@ public class Config
 
     [DataMember] public string GreenLumaPath { get; set; } = string.Empty;
 
-    [DataMember] public bool NoHook { get; set; }
+    [DataMember] public bool NoHook { get; set; } = true;
 
     [DataMember] public bool DisableUpdateCheck { get; set; }
 

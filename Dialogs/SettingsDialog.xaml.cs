@@ -32,7 +32,7 @@ public partial class SettingsDialog
     {
         TxtSteamPath.Text = _config.SteamPath;
         TxtGreenLumaPath.Text = _config.GreenLumaPath;
-        TxtSteamApiKey.Text = _config.SteamApiKey;
+        PwdSteamApiKey.Password = _config.SteamApiKey;
         ChkReplaceSteamAutostart.IsChecked = _config.ReplaceSteamAutostart;
         ChkPrefetchAppList.IsChecked = _config.PrefetchAppList;
         ChkStartSteamMinimized.IsChecked = _config.StartSteamMinimized;
@@ -47,8 +47,9 @@ public partial class SettingsDialog
     private void LoadDeployMode()
     {
         var (isValid, isStealthOnly, _) = GreenLumaService.ValidateInstallation(_config.GreenLumaPath);
-        RbDeployStealth.IsChecked = isValid && isStealthOnly;
-        RbDeployNormal.IsChecked = !(isValid && isStealthOnly);
+        var stealth = isValid && isStealthOnly || _config.NoHook;
+        RbDeployStealth.IsChecked = stealth;
+        RbDeployNormal.IsChecked = !stealth;
     }
 
     private void UpdateGreenLumaVersionOverrideText()
@@ -108,6 +109,18 @@ public partial class SettingsDialog
             dialog.InitialDirectory = TxtSteamPath.Text;
 
         if (dialog.ShowDialog() == true) TxtSteamPath.Text = dialog.FolderName;
+    }
+
+    private void SteamApiKeyVisibility_Changed(object sender, RoutedEventArgs e)
+    {
+        if (PwdSteamApiKey == null || TxtSteamApiKey == null) return;
+        var show = BtnShowSteamApiKey.IsChecked == true;
+        if (show) TxtSteamApiKey.Text = PwdSteamApiKey.Password;
+        else { PwdSteamApiKey.Password = TxtSteamApiKey.Text; TxtSteamApiKey.Clear(); }
+        PwdSteamApiKey.Visibility = show ? Visibility.Collapsed : Visibility.Visible;
+        TxtSteamApiKey.Visibility = show ? Visibility.Visible : Visibility.Collapsed;
+        BtnShowSteamApiKey.Content = show ? "Hide" : "Show";
+        System.Windows.Automation.AutomationProperties.SetName(BtnShowSteamApiKey, show ? "Hide Steam Web API key" : "Show Steam Web API key");
     }
 
     private void BrowseGreenLuma_Click(object sender, RoutedEventArgs e)
@@ -263,43 +276,7 @@ public partial class SettingsDialog
         if (App.IsPreview) { CustomMessageBox.Show("This operation is disabled in preview mode.", "Preview"); return; }
         try
         {
-            var steamExePath = Path.Combine(_config.SteamPath, "Steam.exe");
-            if (!File.Exists(steamExePath))
-            {
-                CustomMessageBox.Show("Steam executable not found at the configured path.", "Error",
-                    MessageBoxButton.OK, MessageBoxImage.Error);
-                return;
-            }
-
-            string[] processNames = ["steam", "steamservice", "steamwebhelper"];
-
-            Process.Start(new ProcessStartInfo
-            {
-                FileName = steamExePath,
-                Arguments = "-shutdown",
-                UseShellExecute = false,
-                CreateNoWindow = true
-            });
-
-            await Task.Delay(3000);
-
-            foreach (var name in processNames)
-            foreach (var proc in Process.GetProcessesByName(name))
-                try
-                {
-                    proc.Kill();
-                    proc.WaitForExit(3000);
-                }
-                catch (Exception ex)
-                {
-                    Debug.WriteLine(ex);
-                }
-
-            Process.Start(new ProcessStartInfo
-            {
-                FileName = steamExePath,
-                UseShellExecute = true
-            });
+            await SteamRestartService.RestartAsync(_config.SteamPath, _config.StartSteamMinimized);
 
             CustomMessageBox.Show("Steam has been restarted.", "Done",
                 MessageBoxButton.OK, MessageBoxImage.Information);
@@ -426,7 +403,7 @@ public partial class SettingsDialog
 
         _config.SteamPath = steamPath;
         _config.GreenLumaPath = greenLumaPath;
-        _config.SteamApiKey = TxtSteamApiKey.Text.Trim();
+        _config.SteamApiKey = (BtnShowSteamApiKey.IsChecked == true ? TxtSteamApiKey.Text : PwdSteamApiKey.Password).Trim();
         _config.ReplaceSteamAutostart = ChkReplaceSteamAutostart.IsChecked.GetValueOrDefault();
         _config.PrefetchAppList = ChkPrefetchAppList.IsChecked.GetValueOrDefault();
         _config.StartSteamMinimized = ChkStartSteamMinimized.IsChecked.GetValueOrDefault();
