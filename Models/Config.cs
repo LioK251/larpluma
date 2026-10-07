@@ -2,9 +2,18 @@
 
 namespace GreenLuma_Manager.Models;
 
+public enum UnlockMethod { GreenLuma, CreamInstaller }
+public enum SteamUnlocker { SmokeAPI, CreamAPI }
+
 [DataContract]
 public class Config
 {
+    [DataMember] public UnlockMethod UnlockMethod { get; set; }
+    [DataMember] public SteamUnlocker SteamUnlocker { get; set; }
+    [DataMember] public bool UnlockerProxy { get; set; }
+    [DataMember] public string UnlockerProxyName { get; set; } = "winmm";
+    [DataMember] public bool CreamExtraProtection { get; set; }
+
     [DataMember] public string SteamPath { get; set; } = string.Empty;
 
     [DataMember] public string GreenLumaPath { get; set; } = string.Empty;

@@ -13,6 +13,18 @@ public class GameListController
 
     private string? _searchFilter;
     private string? _typeFilter;
+    private int _updateDepth;
+    private bool _refreshPending;
+
+    public void BatchUpdate(Action update)
+    {
+        _updateDepth++;
+        try { update(); }
+        finally
+        {
+            if (--_updateDepth == 0 && _refreshPending) ApplyFilters();
+        }
+    }
 
     public GameListController(ItemsControl lstGames, UIElement pnlEmptyGames, NotificationManager notificationManager)
     {
@@ -44,7 +56,10 @@ public class GameListController
 
     public void ApplyFilters()
     {
+        if (_updateDepth > 0) { _refreshPending = true; return; }
+        _refreshPending = false;
         if (Games.Any(x => x.IsEditing)) return;
+        var byId = Games.GroupBy(x => x.AppId).ToDictionary(x => x.Key, x => x.First());
         var expanded = Groups.ToDictionary(x => x.AppId, x => x.IsExpanded);
         var searchLower = _searchFilter?.ToLowerInvariant();
         var typeFilter = IsTypeFilterActive ? _typeFilter : null;
@@ -74,9 +89,9 @@ public class GameListController
         }
 
         Groups.Clear();
-        foreach (var entries in Games.GroupBy(GroupKey))
+        foreach (var entries in Games.GroupBy(x => GroupKey(x, byId)))
         {
-            var parent = Games.FirstOrDefault(x => x.AppId == entries.Key);
+            var parent = byId.GetValueOrDefault(entries.Key);
             var children = entries.Where(x => x != parent && Matches(x)).ToList();
             var visibleParent = parent != null && Matches(parent) ? parent : null;
             if (visibleParent == null && children.Count == 0) continue;
@@ -94,12 +109,11 @@ public class GameListController
         UpdateGameListState();
     }
 
-    private string GroupKey(Game game)
+    private string GroupKey(Game game, Dictionary<string, Game>? byId = null)
     {
         if (!uint.TryParse(game.ParentAppId, out var parent) || parent == 0 || game.ParentAppId == game.AppId)
             return game.AppId;
-        // ponytail: linear parent lookup; index App IDs if large profiles become slow.
-        var parentGame = Games.FirstOrDefault(x => x.AppId == game.ParentAppId);
+        var parentGame = byId != null ? byId.GetValueOrDefault(game.ParentAppId!) : Games.FirstOrDefault(x => x.AppId == game.ParentAppId);
         // Do not nest malformed parent chains or cycles.
         return !string.IsNullOrEmpty(parentGame?.ParentAppId) && parentGame.ParentAppId != parentGame.AppId
             ? game.AppId : game.ParentAppId!;
@@ -227,7 +241,7 @@ public class GameListController
         }
         else
         {
-            var keys = Games.Select(GroupKey).Distinct().ToList();
+            var keys = Games.Select(x => GroupKey(x)).Distinct().ToList();
             var index = keys.IndexOf(key);
             var target = index + direction;
             if (target < 0 || target >= keys.Count) return;

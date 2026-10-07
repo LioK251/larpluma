@@ -58,7 +58,12 @@ public class ConfigService
     {
         try
         {
-            return JsonSerializer.Deserialize<Config>(json);
+            var config = JsonSerializer.Deserialize<Config>(json);
+            if (config == null) return null;
+            if (!Enum.IsDefined(config.UnlockMethod)) config.UnlockMethod = UnlockMethod.GreenLuma;
+            if (!Enum.IsDefined(config.SteamUnlocker)) config.SteamUnlocker = SteamUnlocker.SmokeAPI;
+            if (config.UnlockerProxyName is not ("winmm" or "winhttp" or "version")) config.UnlockerProxyName = "winmm";
+            return config;
         }
         catch (Exception ex)
         {

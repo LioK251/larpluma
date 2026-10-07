@@ -58,7 +58,15 @@ internal static class Program
                     return;
                 }
                 TestInputs();
+                await CreamInstallerChecks.Run(Check, _artifacts);
+                if (args.Contains("--unlockers"))
+                {
+                    Console.WriteLine($"PASS: {_assertions} unlocker checks.");
+                    exit = 0;
+                    return;
+                }
                 TestThemes();
+                await TestDialogBackgrounds();
                 TestImport();
                 await TestCancellation();
                 await TestAppLists();
@@ -135,6 +143,57 @@ internal static class Program
         }
         Reject(() => AppearanceService.Import(malformed), "Reject traversal in imported theme");
         AppearanceService.Save(new());
+    }
+
+    private static async Task TestDialogBackgrounds()
+    {
+        var saved = AppearanceService.Clone(AppearanceService.Current);
+        var theme = new Appearance { BackgroundFile = Path.Combine(_artifacts, "background.png"), BackgroundOpacity = 1, OverlayOpacity = 0 };
+        AppearanceService.Apply(theme);
+        var dialogs = new Window[]
+        {
+            new SettingsDialog(new Config { FirstRun = false }), new PluginsDialog(), new CreateProfileDialog(),
+            (Window)Activator.CreateInstance(typeof(CustomMessageBox), BindingFlags.Instance | BindingFlags.NonPublic, null,
+                ["Background fixture", "Message", MessageBoxButton.OK, MessageBoxImage.None], null)!,
+            (Window)Activator.CreateInstance(typeof(GreenLumaVersionDialog), BindingFlags.Instance | BindingFlags.NonPublic, null, ["1.7.9"], null)!
+        };
+        try
+        {
+            foreach (var window in dialogs)
+            {
+                Layout(window); await Task.Delay(25); window.UpdateLayout();
+                byte[] Pixel()
+                {
+                    var root = (FrameworkElement)window.Content;
+                    var bitmap = new RenderTargetBitmap((int)root.ActualWidth, (int)root.ActualHeight, 96, 96, PixelFormats.Pbgra32);
+                    var canvas = new DrawingVisual(); using (var draw = canvas.RenderOpen()) draw.DrawRectangle(window.Background, null, new Rect(0, 0, root.ActualWidth, root.ActualHeight));
+                    bitmap.Render(canvas); bitmap.Render(root);
+                    var pixel = new byte[4]; bitmap.CopyPixels(new Int32Rect(4, 80, 1, 1), pixel, 4, 0); return pixel;
+                }
+                Check(Pixel().Take(3).All(x => x == 128), window.Title + " displays the chosen background image behind its controls");
+                theme.BackgroundOpacity = 0; AppearanceService.Apply(theme); window.UpdateLayout();
+                Check(Pixel().Take(3).All(x => x == 20), window.Title + " updates background opacity live");
+                theme.BackgroundOpacity = 1; AppearanceService.Apply(theme); window.UpdateLayout();
+                Check(Pixel().Take(3).All(x => x == 128), window.Title + " restores the background live");
+                if (window is SettingsDialog) Capture(window, "settings-background.png");
+                window.Close();
+            }
+            var portrait = Path.Combine(_artifacts, "portrait-background.png");
+            var image = new RenderTargetBitmap(32, 4096, 96, 96, PixelFormats.Pbgra32);
+            var art = new DrawingVisual(); using (var draw = art.RenderOpen()) draw.DrawRectangle(Brushes.Gray, null, new Rect(0, 0, 32, 4096)); image.Render(art);
+            var encoder = new PngBitmapEncoder(); encoder.Frames.Add(BitmapFrame.Create(image)); using (var file = File.Create(portrait)) encoder.Save(file);
+            theme.BackgroundFile = portrait; AppearanceService.Apply(theme);
+            var compact = (Window)Activator.CreateInstance(typeof(CustomMessageBox), BindingFlags.Instance | BindingFlags.NonPublic, null,
+                ["Background fixture", "Message", MessageBoxButton.OK, MessageBoxImage.None], null)!;
+            try
+            {
+                compact.Left = -12000; compact.Top = -12000; compact.ShowInTaskbar = false; compact.ShowActivated = false;
+                compact.WindowStartupLocation = WindowStartupLocation.Manual; compact.Show(); await Task.Delay(50); compact.UpdateLayout();
+                Check(compact.ActualHeight < 300, "A portrait background cannot inflate an automatically sized dialog");
+            }
+            finally { compact.Close(); }
+        }
+        finally { foreach (var dialog in dialogs) dialog.Close(); AppearanceService.Apply(saved); }
     }
 
     private static void TestImport()
@@ -214,14 +273,14 @@ internal static class Program
         var details = (DataGrid)window.FindName("DgDetails");
         var content = (DataGrid)window.FindName("DgAdditional");
         var expander = (Expander)window.FindName("AdditionalContent");
-        IEnumerable<DlcSelection> Rows() => details.Items.Cast<DlcSelection>().Concat(content.Items.Cast<DlcSelection>());
-        Check(details.Items.Count == 1 && content.Items.Count == 3, "Base game and all additional content have separate rows");
+        IEnumerable<DlcSelection> Rows() => (List<DlcSelection>)typeof(MainWindow).GetField("_detailRows", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(window)!;
+        Check(details.Items.Count == 1 && content.Items.Count == 0 && Rows().Count() == 1, "Base game appears without resolving or binding hidden content");
         Check(!expander.IsExpanded && !content.IsVisible, "Additional content starts collapsed");
         Check(Rows().All(x => !x.Selected), "Content selection starts empty");
         var restartButton = WindowFrameChecks.Descendants<Button>(window).Single(x => System.Windows.Automation.AutomationProperties.GetName(x) == "Restart Steam without GreenLuma");
         Check(!restartButton.IsEnabled, "Title-bar Steam restart is disabled in preview");
         Capture(window, "content-collapsed-dark.png");
-        expander.IsExpanded = true; Layout(window); await Task.Delay(150); Layout(window);
+        expander.IsExpanded = true; await (Task<bool>)Invoke(window, "EnsureAdditionalContentAsync")!; Layout(window); await Task.Delay(150); Layout(window);
         Check(WindowFrameChecks.Descendants<CheckBox>(content).Count() == content.Items.Count, "Every expanded content row renders a checkbox");
         Check(WindowFrameChecks.Descendants<TextBlock>(content).Any(x => x.Text == content.Items.Cast<DlcSelection>().First().Game.Name), "Expanded content names render visibly");
         var peer = new System.Windows.Automation.Peers.ExpanderAutomationPeer(expander);
@@ -237,7 +296,7 @@ internal static class Program
         }
         content.Items.Cast<DlcSelection>().First().Selected = true;
         expandPattern.Collapse(); Layout(window);
-        Check(!content.IsVisible && content.Items.Cast<DlcSelection>().First().Selected, "Collapse retains hidden selections");
+        Check(!content.IsVisible && content.Items.Count == 0 && Rows().Skip(1).First().Selected, "Collapse unbinds controls and retains hidden selections");
         Invoke(window, "ClearDetails_Click", window, new RoutedEventArgs());
         Check(Rows().All(x => !x.Selected), "Clear includes collapsed content");
         Invoke(window, "SelectAllDetails_Click", window, new RoutedEventArgs()); Layout(window);
@@ -265,6 +324,7 @@ internal static class Program
         controller.StartRename(first); first.Name = "Temporary"; controller.CancelRename(first);
         Check(first.Name == "Renamed" && !first.IsEditing, "Rename commit and cancel preserve the name");
         await TestContentGroups(window, controller);
+        await LoadingChecks.Run(window, controller, Check);
         controller.LoadGames([]);
         AppearanceService.Apply(Appearance.Light()); Layout(window); await Task.Delay(150); Capture(window, "main-light.png");
         foreach (var scale in new[] { .85, 1.5 }) { var theme = new Appearance { Scale = scale, Comfortable = true }; AppearanceService.Apply(theme); window.Width = 960; window.Height = 620; Layout(window); await Task.Delay(100); Check(window.ActualWidth == 960, "Minimum window layout"); Capture(window, "scale-" + scale.ToString(System.Globalization.CultureInfo.InvariantCulture) + ".png"); }
@@ -390,6 +450,7 @@ internal static class Program
         controller.Groups[0].IsExpanded = true; controller.ApplyFilters();
         await (Task)Invoke(window, "OpenDetailsAsync", (uint)3764200, false)!;
         ((Expander)window.FindName("AdditionalContent")).IsExpanded = true;
+        await (Task<bool>)Invoke(window, "EnsureAdditionalContentAsync")!;
         ((FrameworkElement)window.FindName("Toast")).Visibility = Visibility.Collapsed;
         Layout(window); await Task.Delay(150); Layout(window);
         Check(WindowFrameChecks.Descendants<TextBlock>(window).Any(x => x.Text.Contains("Larpluma " + MainWindow.Version)), "Interface displays the full release version");

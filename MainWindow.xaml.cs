@@ -21,7 +21,7 @@ namespace GreenLuma_Manager;
 
 public partial class MainWindow
 {
-    public const string Version = "0.1.1";
+    public const string Version = "0.1.2";
 
     public const string UpstreamVersion = "RC2.21";
     private const string LatestGreenLumaVersion = "1.8.6";
@@ -76,7 +76,7 @@ public partial class MainWindow
         LaunchGreenlumaCommand =
             new RelayCommand(_ => LaunchGreenlumaButton_Click(BtnLaunchGreenluma, new RoutedEventArgs()));
         ToggleStealthCommand =
-            new RelayCommand(_ => TglStealthMode.IsChecked = !TglStealthMode.IsChecked.GetValueOrDefault());
+            new RelayCommand(_ => { if (_config?.UnlockMethod == UnlockMethod.GreenLuma) TglStealthMode.IsChecked = !TglStealthMode.IsChecked.GetValueOrDefault(); });
         CycleProfileCommand = new RelayCommand(_ => CycleProfile());
 
         DataContext = this;
@@ -120,7 +120,6 @@ public partial class MainWindow
         UpdateStatus();
         AppearanceService.Changed += UpdateStatus;
         Backdrop.StatusChanged += message => { if (message != null) _notificationManager.ShowToast(message, false); };
-        CmbGameTypeFilter.SelectedIndex = 0;
     }
 
     public ICommand FocusSearchCommand { get; }
@@ -131,6 +130,13 @@ public partial class MainWindow
 
     protected override void OnClosing(CancelEventArgs e)
     {
+        if (_unlockerCts != null)
+        {
+            _unlockerCts.Cancel();
+            e.Cancel = true;
+            _notificationManager.ShowToast("Canceling after the current game. Close again when the operation finishes.");
+            return;
+        }
         if (_config != null && WindowState == WindowState.Normal)
         {
             _config.WindowWidth = Width;
@@ -299,13 +305,14 @@ public partial class MainWindow
                     var existingGame = _gameListController.Games.FirstOrDefault(g => g.AppId == newGame.AppId);
                     if (existingGame == null) return;
 
-                    if (!string.IsNullOrEmpty(tempGame.Name))
-                        existingGame.Name = tempGame.Name;
-
-                    existingGame.Type = tempGame.Type;
-                    existingGame.ParentName = tempGame.ParentName ?? existingGame.ParentName;
-                    existingGame.ParentAppId = tempGame.ParentAppId ?? existingGame.ParentAppId;
-                    _gameListController.ApplyFilters();
+                    _gameListController.BatchUpdate(() =>
+                    {
+                        if (!existingGame.IsEditing && !string.IsNullOrEmpty(tempGame.Name)) existingGame.Name = tempGame.Name;
+                        existingGame.Type = tempGame.Type;
+                        existingGame.ParentName = tempGame.ParentName ?? existingGame.ParentName;
+                        existingGame.ParentAppId = tempGame.ParentAppId ?? existingGame.ParentAppId;
+                        _gameListController.ApplyFilters();
+                    });
 
                     if (!string.IsNullOrEmpty(tempGame.IconUrl))
                     {
@@ -352,17 +359,20 @@ public partial class MainWindow
         if (_lastAddAllGames != null)
         {
             var removed = 0;
-            foreach (var game in _lastAddAllGames)
+            _gameListController.BatchUpdate(() =>
             {
-                var existing = _gameListController.Games.FirstOrDefault(g => g.AppId == game.AppId);
-                if (existing != null)
+                foreach (var game in _lastAddAllGames)
                 {
-                    _gameListController.RemoveGame(existing);
-                    var searchResult = _searchController.SearchResults.FirstOrDefault(g => g.AppId == game.AppId);
-                    if (searchResult != null) searchResult.IsInProfile = false;
-                    removed++;
+                    var existing = _gameListController.Games.FirstOrDefault(g => g.AppId == game.AppId);
+                    if (existing != null)
+                    {
+                        _gameListController.RemoveGame(existing);
+                        var searchResult = _searchController.SearchResults.FirstOrDefault(g => g.AppId == game.AppId);
+                        if (searchResult != null) searchResult.IsInProfile = false;
+                        removed++;
+                    }
                 }
-            }
+            });
 
             if (removed > 0)
             {
@@ -379,17 +389,29 @@ public partial class MainWindow
         if (_searchController.SearchResults.Count == 0) return;
 
         var added = new List<Game>();
-        foreach (var result in _searchController.SearchResults.ToList())
+        _gameListController.BatchUpdate(() =>
         {
-            if (_gameListController.Games.Any(g => g.AppId == result.AppId))
-                continue;
+            foreach (var result in _searchController.SearchResults.ToList())
+            {
+                if (_gameListController.Games.Any(g => g.AppId == result.AppId))
+                    continue;
 
-            OnSearchResultSelected(result);
-            added.Add(result);
-        }
-
+                var game = new Game
+                {
+                    AppId = result.AppId, Name = result.Name, Type = result.Type, IconUrl = result.IconUrl,
+                    ParentAppId = result.ParentAppId, ParentName = result.ParentName
+                };
+                _gameListController.AddGame(game);
+                result.IsInProfile = true;
+                added.Add(game);
+            }
+        });
         if (added.Count > 0)
         {
+            _profileController.SaveCurrentProfile();
+            UpdateResultCount();
+            ScheduleGameDetailLoad(added);
+            _notificationManager.ShowToast($"Added {added.Count} entries.");
             _lastAddAllGames = added;
             btn.Content = "Undo";
         }
@@ -419,10 +441,18 @@ public partial class MainWindow
         _gameListController?.SetSearchFilter(TxtGameSearch.Text);
     }
 
-    private void CmbGameTypeFilter_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    private bool _syncingUnlockMethod;
+
+    private void CmbUnlockMethod_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
-        if (CmbGameTypeFilter.SelectedItem is ComboBoxItem item && item.Content is string type)
-            _gameListController?.SetTypeFilter(type);
+        if (_syncingUnlockMethod || _config == null || CmbUnlockMethod.SelectedIndex < 0) return;
+        if (_unlockerCts != null) { UpdateStatus(); return; }
+        var method = (UnlockMethod)CmbUnlockMethod.SelectedIndex;
+        if (method == _config.UnlockMethod) return;
+        _config.UnlockMethod = method;
+        ConfigService.Save(_config);
+        if (!App.IsPreview && _config.ReplaceSteamAutostart) AutostartManager.ManageAutostart(true, _config);
+        UpdateStatus();
     }
 
     private void ProfileComboBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
@@ -443,8 +473,6 @@ public partial class MainWindow
             _lastAddAllGames = null;
             BtnAddAll.Content = "Add all";
             TxtGameSearch.Text = string.Empty;
-            if (CmbGameTypeFilter.SelectedIndex != 0)
-                CmbGameTypeFilter.SelectedIndex = 0;
 
             CancelPendingProfileLoad();
             _searchController.CancelSearch();
@@ -479,59 +507,79 @@ public partial class MainWindow
         _profileLoadCts = new CancellationTokenSource();
     }
 
-    private void ScheduleGameDetailLoad()
+    private async void ScheduleGameDetailLoad(IEnumerable<Game>? requested = null)
     {
-        if (App.IsPreview) return;
-        if (_profileLoadCts == null) return;
+        if (App.IsPreview || _profileLoadCts == null) return;
         var token = _profileLoadCts.Token;
-
-        _ = Task.Run(async () =>
+        var games = (requested ?? _gameListController.Games.Where(g =>
+            g.Type != "Game" && (string.IsNullOrWhiteSpace(g.ParentAppId) || string.IsNullOrWhiteSpace(g.ParentName)) ||
+            g.Type == "Unknown" || g.Name == $"App {g.AppId}")).ToList();
+        try
         {
             await Task.Delay(100, token);
-            if (token.IsCancellationRequested) return;
-
-            var gamesToProcess = _gameListController.Games
-                .Where(g => string.IsNullOrWhiteSpace(g.IconUrl) || string.IsNullOrWhiteSpace(g.ParentAppId) || string.IsNullOrWhiteSpace(g.ParentName))
-                .ToList();
-
-            await Parallel.ForEachAsync(
-                gamesToProcess,
-                new ParallelOptions { MaxDegreeOfParallelism = 6, CancellationToken = token },
-                async (game, ct) =>
+            foreach (var batch in games.Chunk(150))
+            {
+                var details = await SearchService.FetchGameDetailsBatchAsync(batch.Select(x => x.AppId).ToList(), token);
+                var parentIds = details.Values.Select(x => x.ParentAppId).Where(x => !string.IsNullOrEmpty(x)).Cast<string>().Distinct().ToList();
+                var parents = await SearchService.FetchGameDetailsBatchAsync(parentIds, token);
+                token.ThrowIfCancellationRequested();
+                var changed = false;
+                _gameListController.BatchUpdate(() =>
                 {
-                    try
+                    foreach (var game in batch)
                     {
-                        var tempGame = new Game { AppId = game.AppId, Name = string.Empty, Type = game.Type };
-                        await SearchService.PopulateGameDetailsAsync(tempGame, ct).ConfigureAwait(false);
-
-                        await Application.Current.Dispatcher.InvokeAsync(() =>
+                        if (!details.TryGetValue(game.AppId, out var detail) || detail.Name == $"App {game.AppId}") continue;
+                        var parentName = detail.ParentAppId != null ? parents.GetValueOrDefault(detail.ParentAppId)?.Name : null;
+                        if (game.Type != detail.Type || game.ParentAppId != detail.ParentAppId ||
+                            parentName != null && game.ParentName != parentName)
                         {
-                            if (ct.IsCancellationRequested) return;
-
-                            if (string.IsNullOrWhiteSpace(game.IconUrl) && !game.IsEditing && !string.IsNullOrEmpty(tempGame.Name))
-                                game.Name = tempGame.Name;
-
-                            game.Type = tempGame.Type;
-                            game.ParentName = tempGame.ParentName ?? game.ParentName;
-                            game.ParentAppId = tempGame.ParentAppId ?? game.ParentAppId;
-                            _gameListController.ApplyFilters();
-
-                            if (!string.IsNullOrEmpty(tempGame.IconUrl))
-                            {
-                                game.IconUrl = tempGame.IconUrl;
-                            }
-                            _profileController.SaveCurrentProfile();
-                        }, DispatcherPriority.Background);
+                            game.Type = detail.Type;
+                            game.ParentAppId = detail.ParentAppId;
+                            game.ParentName = parentName ?? game.ParentName;
+                            changed = true;
+                        }
+                        if (!game.IsEditing && (game.Name == $"App {game.AppId}" || game.Name.StartsWith("Unknown App ")))
+                        { game.Name = detail.Name; changed = true; }
                     }
-                    catch (OperationCanceledException)
-                    {
-                    }
-                    catch (Exception ex)
-                    {
-                        Logger.Error(ex, "MainWindow.ProfileLoadIcon");
-                    }
+                    if (changed) _gameListController.ApplyFilters();
                 });
-        }, token);
+                if (changed) _profileController.SaveCurrentProfile();
+            }
+        }
+        catch (OperationCanceledException) when (token.IsCancellationRequested) { }
+        catch (Exception ex) { Logger.Error(ex, "MainWindow.ProfileMetadata"); }
+    }
+
+    private readonly HashSet<string> _profileIconLoads = [];
+
+    private async void ProfileContent_Expanded(object sender, RoutedEventArgs e)
+    {
+        if (e.OriginalSource != sender || sender is not Expander { DataContext: GameGroup group } ||
+            App.IsPreview || _profileLoadCts == null) return;
+        var token = _profileLoadCts.Token;
+        var profile = _profileController.CurrentProfile;
+        var games = group.Children.Where(x => string.IsNullOrWhiteSpace(x.IconUrl) && _profileIconLoads.Add(x.AppId)).ToList();
+        if (games.Count == 0) return;
+        try
+        {
+            var details = await SearchService.FetchGameDetailsBatchAsync(games.Select(x => x.AppId).ToList(), token);
+            var icons = new System.Collections.Concurrent.ConcurrentDictionary<string, string>();
+            await Parallel.ForEachAsync(games, new ParallelOptions { MaxDegreeOfParallelism = 6, CancellationToken = token }, async (game, ct) =>
+            {
+                if (details.TryGetValue(game.AppId, out var detail))
+                {
+                    var icon = await IconCacheService.CacheIconForGameAsync(detail);
+                    if (!string.IsNullOrEmpty(icon)) icons[game.AppId] = icon;
+                }
+            });
+            token.ThrowIfCancellationRequested();
+            if (_profileController.CurrentProfile != profile) return;
+            foreach (var game in games) if (icons.TryGetValue(game.AppId, out var icon)) game.IconUrl = icon;
+            if (icons.Count > 0) _profileController.SaveCurrentProfile();
+        }
+        catch (OperationCanceledException) when (token.IsCancellationRequested) { }
+        catch (Exception ex) { Logger.Error(ex, "MainWindow.ProfileContentIcons"); }
+        finally { foreach (var game in games) _profileIconLoads.Remove(game.AppId); }
     }
 
     private void ProfileOptionsButton_Click(object sender, RoutedEventArgs e)
@@ -779,6 +827,7 @@ public partial class MainWindow
     private async void GenerateApplistButton_Click(object sender, RoutedEventArgs e)
     {
         if (App.IsPreview) { _notificationManager.ShowToast("This operation is disabled in preview mode.", false); return; }
+        if (_config?.UnlockMethod == UnlockMethod.CreamInstaller) { await RunCreamOperationAsync(false); return; }
         await GenerateAppListWithChecksAsync();
     }
 
@@ -881,6 +930,13 @@ public partial class MainWindow
     private async void LaunchGreenlumaButton_Click(object sender, RoutedEventArgs e)
     {
         if (App.IsPreview) { _notificationManager.ShowToast("This operation is disabled in preview mode.", false); return; }
+        if (_unlockerCts != null) return;
+        if (_config?.UnlockMethod == UnlockMethod.CreamInstaller)
+        {
+            try { await _launcher.LaunchAsync(_config); _notificationManager.ShowToast("Steam launched."); }
+            catch (Exception ex) { Logger.Error(ex, "MainWindow.LaunchSteam"); _notificationManager.ShowToast(ex.Message, false); }
+            return;
+        }
         try
         {
             if (_config == null) return;
@@ -987,6 +1043,7 @@ public partial class MainWindow
 
     private void SettingsButton_Click(object? sender, RoutedEventArgs? e)
     {
+        if (_unlockerCts != null) { _notificationManager.ShowToast("Wait for the unlocker operation to finish before changing settings.", false); return; }
         try
         {
             if (_config == null) return;
@@ -1005,7 +1062,7 @@ public partial class MainWindow
 
                 var nowHasGreenLumaPath = !string.IsNullOrWhiteSpace(_config.GreenLumaPath);
 
-                if (!hadGreenLumaPath && nowHasGreenLumaPath)
+                if (_config.UnlockMethod == UnlockMethod.GreenLuma && !hadGreenLumaPath && nowHasGreenLumaPath)
                     _ = ImportExistingAppListAfterSettings();
             }
         }
@@ -1051,7 +1108,7 @@ public partial class MainWindow
 
     private void NoHook_Toggled(object sender, RoutedEventArgs e)
     {
-        if (_config == null || sender is not ToggleButton toggleButton)
+        if (_config == null || _config.UnlockMethod != UnlockMethod.GreenLuma || sender is not ToggleButton toggleButton)
             return;
 
         _config.NoHook = toggleButton.IsChecked.GetValueOrDefault();
@@ -1061,6 +1118,24 @@ public partial class MainWindow
 
     private void UpdateStatus()
     {
+        _syncingUnlockMethod = true;
+        CmbUnlockMethod.SelectedIndex = (int)(_config?.UnlockMethod ?? UnlockMethod.GreenLuma);
+        CmbUnlockMethod.IsEnabled = _unlockerCts == null;
+        _syncingUnlockMethod = false;
+        var cream = _config?.UnlockMethod == UnlockMethod.CreamInstaller;
+        BtnGenerateApplist.Content = cream ? "Install / update DLC unlocker" : "Generate AppList";
+        BtnLaunchGreenluma.Content = cream ? "Launch Steam" : "Launch GreenLuma";
+        BtnUninstallUnlocker.Visibility = cream ? Visibility.Visible : Visibility.Collapsed;
+        BtnGenerateApplist.IsEnabled = BtnLaunchGreenluma.IsEnabled = BtnUninstallUnlocker.IsEnabled = !App.IsPreview && _unlockerCts == null;
+        TglStealthMode.Visibility = cream ? Visibility.Collapsed : Visibility.Visible;
+        if (cream)
+        {
+            TxtGreenLumaVersionStatus.Visibility = TxtVersionDot.Visibility = Visibility.Collapsed;
+            var valid = CreamInstallerService.HasValidSteamPath(_config!.SteamPath);
+            _notificationManager.SetStatusIndicator(TryFindResource(valid ? "Success" : "Danger") as Brush ?? Brushes.Gray,
+                valid ? $"Ready  •  CreamInstaller / {_config.SteamUnlocker}" : "Steam directory not configured");
+            return;
+        }
         if (_config == null)
         {
             TxtGreenLumaVersionStatus.Visibility = Visibility.Collapsed;
@@ -1162,7 +1237,7 @@ public partial class MainWindow
     {
         try
         {
-            if (_config == null) return;
+            if (_config == null || _config.UnlockMethod != UnlockMethod.GreenLuma) return;
 
             var versionInfo = await GreenLumaUpdateService.AutoDetectDefaultAsync(_config).ConfigureAwait(false);
             if (versionInfo is not { CheckSucceeded: true }) return;
@@ -1195,8 +1270,9 @@ public partial class MainWindow
     {
         if (_config == null) return;
 
-        if (!_config.FirstRun ||
-            (!string.IsNullOrWhiteSpace(_config.SteamPath) && !string.IsNullOrWhiteSpace(_config.GreenLumaPath)))
+        if (!_config.FirstRun || (_config.UnlockMethod == UnlockMethod.CreamInstaller
+            ? CreamInstallerService.HasValidSteamPath(_config.SteamPath)
+            : !string.IsNullOrWhiteSpace(_config.SteamPath) && !string.IsNullOrWhiteSpace(_config.GreenLumaPath)))
             return;
 
         _config.FirstRun = false;
@@ -1205,7 +1281,7 @@ public partial class MainWindow
         Dispatcher.BeginInvoke((Action)(() =>
         {
             var result = CustomMessageBox.Show(
-                "Steam and GreenLuma paths could not be detected automatically.\n\n" +
+                (_config.UnlockMethod == UnlockMethod.CreamInstaller ? "Steam could not be detected automatically.\n\n" : "Steam and GreenLuma paths could not be detected automatically.\n\n") +
                 "Please configure them in Settings to use all features.",
                 "Setup Required",
                 MessageBoxButton.OKCancel,
@@ -1297,6 +1373,7 @@ public partial class MainWindow
 
     private void CycleProfile()
     {
+        if (_unlockerCts != null) return;
         var realProfiles = _profiles.Where(p => p != "__empty__").ToList();
         if (realProfiles.Count <= 1) return;
 

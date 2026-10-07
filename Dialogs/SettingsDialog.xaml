@@ -9,6 +9,7 @@
             <ColumnDefinition Width="170" />
             <ColumnDefinition />
         </Grid.ColumnDefinitions>
+        <controls:BackgroundLayer Grid.RowSpan="3" Grid.ColumnSpan="2" IsHitTestVisible="False" />
         <Border BorderBrush="{DynamicResource Border}" BorderThickness="0,0,1,0" Padding="18,18" Grid.Row="1">
             <StackPanel>
                 <RadioButton x:Name="NavGeneral" Content="General" GroupName="SettingsPage" Checked="Nav_Checked" IsChecked="True" />
@@ -22,14 +23,40 @@
                 <StackPanel Margin="0,0,14,24">
                     <TextBlock Text="General" Style="{StaticResource HeaderTxt}" />
                     <TextBlock Text="Configure installation paths and Steam search." Style="{StaticResource DescriptionTxt}" />
+                    <TextBlock Text="DLC unlocking method" Margin="0,12,0,8" />
+                    <StackPanel Orientation="Horizontal">
+                        <RadioButton x:Name="RbMethodGreenLuma" Content="GreenLuma" GroupName="UnlockMethod" Checked="UnlockMethod_Changed" AutomationProperties.Name="Use GreenLuma" />
+                        <RadioButton x:Name="RbMethodCream" Content="CreamInstaller" GroupName="UnlockMethod" Checked="UnlockMethod_Changed" AutomationProperties.Name="Use integrated CreamInstaller" />
+                    </StackPanel>
+                    <TextBlock Text="Changing the method affects future actions. Installed files stay until explicitly removed." Style="{StaticResource DescriptionTxt}" />
+                    <StackPanel x:Name="CreamOptions" Visibility="Collapsed" Margin="0,8,0,12">
+                        <TextBlock Text="Steam unlocker" />
+                        <ComboBox x:Name="CmbSteamUnlocker" SelectedIndex="0" SelectionChanged="UnlockMethod_Changed" Margin="0,8,0,12" AutomationProperties.Name="Steam unlocker engine">
+                            <ComboBoxItem Content="SmokeAPI" />
+                            <ComboBoxItem Content="CreamAPI" />
+                        </ComboBox>
+                        <CheckBox x:Name="ChkUnlockerProxy" Content="Use proxy mode" Checked="UnlockMethod_Changed" Unchecked="UnlockMethod_Changed" />
+                        <TextBlock Text="Standard mode preserves original Steam API DLLs. Proxy mode leaves them untouched." Style="{StaticResource DescriptionTxt}" />
+                        <StackPanel x:Name="ProxyOptions" Visibility="Collapsed">
+                            <TextBlock Text="Proxy DLL" />
+                            <ComboBox x:Name="CmbUnlockerProxy" SelectedIndex="0" Margin="0,8,0,12" AutomationProperties.Name="Unlocker proxy DLL">
+                                <ComboBoxItem Content="winmm.dll" />
+                                <ComboBoxItem Content="winhttp.dll" />
+                                <ComboBoxItem Content="version.dll" />
+                            </ComboBox>
+                        </StackPanel>
+                        <CheckBox x:Name="ChkCreamProtection" Content="CreamAPI extra protection" Visibility="Collapsed" />
+                        <TextBlock Text="Options apply to every game in the active profile when you install or update. Steam games only; DLC content files are not downloaded." Style="{StaticResource DescriptionTxt}" />
+                        <TextBlock><Hyperlink NavigateUri="https://github.com/FroggMaster/CreamInstaller" RequestNavigate="Hyperlink_RequestNavigate">CreamInstaller by FroggMaster</Hyperlink></TextBlock>
+                    </StackPanel>
                     <Button Content="Auto-detect paths" Click="AutoDetect_Click" HorizontalAlignment="Left" Margin="0,8,0,12" />
                     <TextBlock Text="Steam directory" />
                     <DockPanel Margin="0,8,0,20">
                         <Button DockPanel.Dock="Right" Content="Browse" Click="BrowseSteam_Click" Margin="8,0,0,0" />
                         <TextBox x:Name="TxtSteamPath" />
                     </DockPanel>
-                    <TextBlock Text="GreenLuma directory" />
-                    <DockPanel Margin="0,8,0,20">
+                    <TextBlock x:Name="LblGreenLumaPath" Text="GreenLuma directory" />
+                    <DockPanel x:Name="GreenLumaPathPanel" Margin="0,8,0,20">
                         <Button DockPanel.Dock="Right" Content="Browse" Click="BrowseGreenLuma_Click" Margin="8,0,0,0" />
                         <TextBox x:Name="TxtGreenLumaPath" />
                     </DockPanel>
@@ -60,7 +87,7 @@
                     <TextBlock Text="System" Style="{StaticResource HeaderTxt}" />
                     <TextBlock Text="Startup behavior and release notifications." Style="{StaticResource DescriptionTxt}" />
                     <CheckBox x:Name="ChkReplaceSteamAutostart" Content="Replace Steam on Windows startup" />
-                    <TextBlock Text="Start Larpluma’s GreenLuma launch flow when Windows starts." Style="{StaticResource DescriptionTxt}" />
+                    <TextBlock Text="Start the selected method's Steam launch flow when Windows starts." Style="{StaticResource DescriptionTxt}" />
                     <CheckBox x:Name="ChkPrefetchAppList" Content="Prefetch Steam app list" />
                     <TextBlock Text="With a Steam API key configured, the current catalog is fetched automatically." Style="{StaticResource DescriptionTxt}" />
                     <CheckBox x:Name="ChkStartSteamMinimized" Content="Start Steam minimized" />
@@ -75,10 +102,13 @@
                 <StackPanel Margin="0,0,14,24">
                     <TextBlock Text="Advanced" Style="{StaticResource HeaderTxt}" />
                     <TextBlock Text="Installation, maintenance and data management." Style="{StaticResource DescriptionTxt}" />
+                    <StackPanel x:Name="GreenLumaVersionPanel">
                     <TextBlock x:Name="TxtGreenLumaVersionOverride" TextWrapping="Wrap" />
                     <Button Content="Change version behavior" Click="ChangeGreenLumaVersion_Click" x:Name="BtnChangeGreenLumaVersion" HorizontalAlignment="Left" Margin="0,8,0,12" />
+                    </StackPanel>
                     <Button Content="Open app data" Click="OpenAppData_Click" HorizontalAlignment="Left" Margin="0,8,0,12" />
                     <Button Content="Restart Steam" Click="RestartSteam_Click" HorizontalAlignment="Left" Margin="0,8,0,12" />
+                    <StackPanel x:Name="GreenLumaDeployPanel">
                     <TextBlock Text="Install / update GreenLuma" Style="{StaticResource HeaderTxt}" />
                     <TextBlock Text="Choose a local ZIP archive and the deployment mode." Style="{StaticResource DescriptionTxt}" />
                     <TextBlock Text="GreenLuma ZIP archive" />
@@ -92,6 +122,7 @@
                     </StackPanel>
                     <Button Content="Install / update" Click="DeployGreenLuma_Click" x:Name="BtnDeployGreenLuma" HorizontalAlignment="Left" Margin="0,8,0,12" />
                     <TextBlock x:Name="TxtDeployStatus" TextWrapping="Wrap" Margin="0,8,0,20" />
+                    </StackPanel>
                     <TextBlock Text="Reset app data" Style="{StaticResource HeaderTxt}" />
                     <TextBlock Text="Permanently removes Larpluma profiles, settings, themes and caches." Style="{StaticResource DescriptionTxt}" />
                     <Button Content="Wipe Larpluma data" Click="WipeData_Click" HorizontalAlignment="Left" Margin="0,8,0,12" />

@@ -32,6 +32,13 @@ public sealed class BackgroundLayer : Grid
         Unloaded += OnUnloaded;
     }
 
+    protected override Size MeasureOverride(Size availableSize)
+    {
+        // Decoration must not determine the size of SizeToContent dialogs.
+        base.MeasureOverride(availableSize);
+        return default;
+    }
+
     private void OnLoaded(object sender, RoutedEventArgs e)
     {
         AppearanceService.Changed += Refresh;

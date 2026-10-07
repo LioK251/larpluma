@@ -4,6 +4,7 @@
             <RowDefinition Height="44" />
             <RowDefinition Height="*" />
         </Grid.RowDefinitions>
+        <controls:BackgroundLayer Grid.RowSpan="2" IsHitTestVisible="False" />
         <controls:TitleBar xmlns:controls="clr-namespace:GreenLuma_Manager.Controls" />
         <Grid Grid.Row="1" Margin="22,18,22,18">
             <Grid.RowDefinitions>

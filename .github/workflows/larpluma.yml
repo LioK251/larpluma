@@ -21,3 +21,5 @@ jobs:
             dist/Larpluma.exe
             dist/LICENSE
             dist/README.md
+            dist/Assets/Unlockers/CreamInstaller.LICENSE
+            dist/Assets/Unlockers/NOTICE.md

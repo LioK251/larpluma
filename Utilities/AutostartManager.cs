@@ -21,7 +21,8 @@ public class AutostartManager
             if (runKey == null)
                 return;
 
-            if (replaceSteam && !string.IsNullOrWhiteSpace(config?.GreenLumaPath))
+            if (replaceSteam && config != null && (config.UnlockMethod == UnlockMethod.CreamInstaller
+                    ? CreamInstallerService.HasValidSteamPath(config.SteamPath) : !string.IsNullOrWhiteSpace(config.GreenLumaPath)))
                 ReplaceWithGreenLuma(runKey, config);
             else
                 RestoreOriginalSteam(runKey, config?.GreenLumaPath);

@@ -9,12 +9,12 @@
         <ImplicitUsings>enable</ImplicitUsings>
         <UseWPF>true</UseWPF>
         <ApplicationIcon>icon.ico</ApplicationIcon>
-        <Version>0.1.1</Version>
+        <Version>0.1.2</Version>
         <Product>Larpluma</Product>
         <Title>Larpluma</Title>
         <Authors>LioK251</Authors>
         <Company>LioK251</Company>
-        <FileVersion>0.1.1.0</FileVersion>
+        <FileVersion>0.1.2.0</FileVersion>
         <AssemblyVersion>0.0.0.2</AssemblyVersion>
         <Copyright>Copyright © LioK251 2026; original GreenLuma Manager © 3vil3vo</Copyright>
         <PackageIcon>icon.ico</PackageIcon>
@@ -49,9 +49,16 @@
     <ItemGroup>
         <EmbeddedResource Include="Data\steam_applist_legacy.json"/>
         <EmbeddedResource Include="Data\AppList.template.ini"/>
+        <EmbeddedResource Include="Assets\Unlockers\CreamAPI\*.dll"/>
+        <EmbeddedResource Include="Assets\Unlockers\SmokeAPI\*.dll"/>
         <EmbeddedResource Include="$(PkgMicrosoft_Web_WebView2)\runtimes\win-x64\native\WebView2Loader.dll">
             <LogicalName>GreenLuma_Manager.Native.WebView2Loader.dll</LogicalName>
         </EmbeddedResource>
+    </ItemGroup>
+
+    <ItemGroup>
+        <None Update="Assets\Unlockers\CreamInstaller.LICENSE" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest"/>
+        <None Update="Assets\Unlockers\NOTICE.md" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest"/>
     </ItemGroup>
 
     <ItemGroup>

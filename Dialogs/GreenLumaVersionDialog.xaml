@@ -5,6 +5,7 @@
             <RowDefinition Height="*" />
             <RowDefinition Height="Auto" />
         </Grid.RowDefinitions>
+        <controls:BackgroundLayer Grid.RowSpan="3" IsHitTestVisible="False" />
         <controls:TitleBar xmlns:controls="clr-namespace:GreenLuma_Manager.Controls" />
         <Border Grid.Row="1" Padding="24,20">
             <TextBlock Name="MessageText" VerticalAlignment="Center" FontSize="{DynamicResource UiSize}" Foreground="{DynamicResource TextSecond}" LineHeight="22" TextWrapping="Wrap" />

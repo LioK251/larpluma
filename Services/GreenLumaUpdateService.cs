@@ -21,7 +21,7 @@ public static partial class GreenLumaUpdateService
 
     public static async Task<GreenLumaVersionInfo?> CheckForGreenLumaUpdatesAsync(Config config)
     {
-        if (!config.CheckGreenLumaUpdates)
+        if (config.UnlockMethod != UnlockMethod.GreenLuma || !config.CheckGreenLumaUpdates)
             return null;
 
         return await RunCheckAsync(config).ConfigureAwait(false);
@@ -29,6 +29,7 @@ public static partial class GreenLumaUpdateService
 
     public static async Task<GreenLumaVersionInfo?> AutoDetectDefaultAsync(Config config)
     {
+        if (config.UnlockMethod != UnlockMethod.GreenLuma) return null;
         if (config.GreenLumaUpdateCheckAutoDetectDone)
             return config.CheckGreenLumaUpdates ? await RunCheckAsync(config).ConfigureAwait(false) : null;
 

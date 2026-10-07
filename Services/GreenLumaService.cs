@@ -257,7 +257,7 @@ public partial class GreenLumaService
 
     public static async Task<int> GenerateAppListAsync(Profile? profile, Config? config)
     {
-        if (profile == null || config == null || string.IsNullOrWhiteSpace(config.GreenLumaPath))
+        if (profile == null || config == null || config.UnlockMethod != UnlockMethod.GreenLuma || string.IsNullOrWhiteSpace(config.GreenLumaPath))
             return -1;
 
         try
@@ -377,6 +377,7 @@ public partial class GreenLumaService
 
     public static async Task<bool> LaunchGreenLumaAsync(Config config)
     {
+        if (config.UnlockMethod != UnlockMethod.GreenLuma || App.IsPreview) return false;
         return await Task.Run(() =>
         {
             try

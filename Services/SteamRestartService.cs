@@ -11,6 +11,19 @@ public static class SteamRestartService
 {
     private static readonly SemaphoreSlim RestartLock = new(1, 1);
 
+    public static void Launch(string steamDirectory, bool minimized = false)
+    {
+        if (App.IsPreview) throw new InvalidOperationException("This operation is disabled in preview mode.");
+        if (string.IsNullOrWhiteSpace(steamDirectory)) throw new ArgumentException("Set the Steam directory in Settings → General.", nameof(steamDirectory));
+        var directory = Path.GetFullPath(steamDirectory);
+        var executable = Path.Combine(directory, "Steam.exe");
+        if (!File.Exists(executable)) throw new FileNotFoundException("Steam executable not found at the configured path.", executable);
+        using var launched = Process.Start(new ProcessStartInfo(executable, minimized ? "-silent" : "")
+        {
+            WorkingDirectory = directory, UseShellExecute = false, CreateNoWindow = true
+        }) ?? throw new IOException("Could not start Steam.");
+    }
+
     public static async Task RestartAsync(string steamDirectory, bool minimized = false)
     {
         if (App.IsPreview) throw new InvalidOperationException("This operation is disabled in preview mode.");
@@ -39,10 +52,7 @@ public static class SteamRestartService
                     throw new IOException("Steam did not exit. It has not been reopened.");
             }
 
-            using var launched = Process.Start(new ProcessStartInfo(executable, minimized ? "-silent" : "")
-            {
-                WorkingDirectory = directory, UseShellExecute = false, CreateNoWindow = true
-            }) ?? throw new IOException("Could not start Steam.");
+            Launch(directory, minimized);
         }
         finally { RestartLock.Release(); }
     }

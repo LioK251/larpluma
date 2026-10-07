@@ -10,6 +10,7 @@ public static class GreenLumaVersionPromptService
     public static bool TryEnsureConfirmed(Config? config)
     {
         if (config == null) return false;
+        if (config.UnlockMethod == UnlockMethod.CreamInstaller) return true;
         if (config.GreenLumaVersionPromptShown) return true;
 
         var greenLumaPath = config.GreenLumaPath.Trim();

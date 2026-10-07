@@ -8,6 +8,8 @@ public class GreenLumaLauncher
 {
     public bool ValidatePaths(Config? config)
     {
+        if (config?.UnlockMethod == UnlockMethod.CreamInstaller)
+            return CreamInstallerService.HasValidSteamPath(config.SteamPath);
         return config != null
                && !string.IsNullOrWhiteSpace(config.GreenLumaPath)
                && Directory.Exists(config.GreenLumaPath);
@@ -18,8 +20,13 @@ public class GreenLumaLauncher
         return GreenLumaService.IsAppListGenerated(config);
     }
 
-    public Task<bool> LaunchAsync(Config config)
+    public async Task<bool> LaunchAsync(Config config)
     {
-        return GreenLumaService.LaunchGreenLumaAsync(config);
+        if (config.UnlockMethod == UnlockMethod.CreamInstaller)
+        {
+            SteamRestartService.Launch(config.SteamPath, config.StartSteamMinimized);
+            return true;
+        }
+        return await GreenLumaService.LaunchGreenLumaAsync(config);
     }
 }

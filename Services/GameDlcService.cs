@@ -6,13 +6,14 @@ namespace GreenLuma_Manager.Services;
 public static class GameDlcService
 {
     private static readonly ConcurrentDictionary<uint, (DateTime Expiry, GameWithDlc Result)> Cache = new();
+    private static readonly ConcurrentDictionary<uint, (DateTime Expiry, GameContentSummary Result)> Summaries = new();
 
     public static async Task<GameWithDlc> GetAsync(uint id, CancellationToken ct = default, bool refresh = false)
     {
         ct.ThrowIfCancellationRequested();
         if (!refresh && Cache.TryGetValue(id, out var cached) && cached.Expiry > DateTime.UtcNow)
             return Copy(cached.Result);
-        var result = await FetchAsync(id, ct, true);
+        var result = await GetContentAsync(await GetSummaryAsync(id, ct, refresh), ct);
         if (!result.Partial && result.BaseGame != null)
         {
             if (Cache.Count > 256) foreach (var key in Cache.Keys.Take(128)) Cache.TryRemove(key, out _);
@@ -21,7 +22,43 @@ public static class GameDlcService
         return result;
     }
 
-    private static async Task<GameWithDlc> FetchAsync(uint id, CancellationToken ct, bool followParent)
+    public static async Task<GameContentSummary> GetSummaryAsync(uint id, CancellationToken ct = default, bool refresh = false)
+    {
+        ct.ThrowIfCancellationRequested();
+        if (!refresh && Summaries.TryGetValue(id, out var cached) && cached.Expiry > DateTime.UtcNow)
+            return cached.Result with { BaseGame = cached.Result.BaseGame == null ? null : CloneGame(cached.Result.BaseGame), ContentIds = [.. cached.Result.ContentIds] };
+        var result = await FetchSummaryAsync(id, ct, true);
+        if (refresh && uint.TryParse(result.BaseGame?.AppId, out var baseId)) Cache.TryRemove(baseId, out _);
+        if (!result.Partial && result.BaseGame != null)
+        {
+            if (Summaries.Count > 256) foreach (var key in Summaries.Keys.Take(128)) Summaries.TryRemove(key, out _);
+            Summaries[id] = (DateTime.UtcNow.AddMinutes(30), result with { BaseGame = CloneGame(result.BaseGame), ContentIds = [.. result.ContentIds] });
+        }
+        return result;
+    }
+
+    public static async Task<GameWithDlc> GetContentAsync(GameContentSummary summary, CancellationToken ct = default)
+    {
+        ct.ThrowIfCancellationRequested();
+        var hasId = uint.TryParse(summary.BaseGame?.AppId, out var id);
+        if (hasId && Cache.TryGetValue(id, out var cached) && cached.Expiry > DateTime.UtcNow &&
+            summary.IsPackage == cached.Result.IsPackage &&
+            summary.ContentIds.ToHashSet().SetEquals(cached.Result.Dlcs.Select(x => x.AppId))) return Copy(cached.Result);
+        var content = await ResolveAsync(summary.ContentIds, ct);
+        ct.ThrowIfCancellationRequested();
+        if (summary.BaseGame != null && !summary.IsPackage) Associate(summary.BaseGame, content);
+        var partial = summary.Partial || content.Any(x => x.Name == $"App {x.AppId}");
+        var result = new GameWithDlc(summary.BaseGame, content, partial,
+            summary.IsPackage ? $"{content.Count} apps in package {summary.BaseGame?.AppId}. Select entries to add." : Describe(content.Count, partial), summary.IsPackage);
+        if (hasId && !partial)
+        {
+            if (Cache.Count > 256) foreach (var key in Cache.Keys.Take(128)) Cache.TryRemove(key, out _);
+            Cache[id] = (DateTime.UtcNow.AddMinutes(30), Copy(result));
+        }
+        return result;
+    }
+
+    private static async Task<GameContentSummary> FetchSummaryAsync(uint id, CancellationToken ct, bool followParent)
     {
         var storeTask = SearchService.FetchSingleAppDetailsAsync(id.ToString(), ct);
         var steamTask = SteamService.Instance.GetAppInfoBatchAsync([id], ct);
@@ -37,29 +74,25 @@ public static class GameDlcService
             ct.ThrowIfCancellationRequested();
             if (package.Count > 0)
             {
-                var packageDetails = await ResolveAsync(package.Select(x => x.ToString()).ToList(), ct);
-                return new(new Game { AppId = id.ToString(), Name = $"Package {id}", Type = "Package" }, packageDetails,
-                    packageDetails.Any(g => g.Name.StartsWith("App ")), $"{packageDetails.Count} apps in package {id}. Select entries to add.", true);
+                return new(new Game { AppId = id.ToString(), Name = $"Package {id}", Type = "Package" }, package.Select(x => x.ToString()).Distinct().ToList(),
+                    false, $"{package.Count} apps in package {id}. Expand package contents to load them.", true);
             }
             return new(null, [], true, "Could not resolve this App ID. Check your connection and retry, or explicitly add it as an unknown app.");
         }
         var parent = details.ParentAppId ?? store?.ParentAppId;
         if (followParent && uint.TryParse(parent, out var parentId) && parentId > 0 && parentId != id)
         {
-            var result = await FetchAsync(parentId, ct, false);
+            var result = await FetchSummaryAsync(parentId, ct, false);
             if (result.BaseGame != null && !result.IsPackage)
             {
-                if (result.Dlcs.All(x => x.AppId != id.ToString())) result.Dlcs.Add(ToGame(details));
-                Associate(result.BaseGame, result.Dlcs);
-                return result with { Status = Describe(result.Dlcs.Count, result.Partial) };
+                var contentIds = MergeIds(result.BaseGame.AppId, result.ContentIds, [id.ToString()]);
+                return result with { ContentIds = contentIds, Status = Describe(contentIds.Count, result.Partial) };
             }
         }
         var ids = MergeIds(id.ToString(), steam?.ListOfDlc, store?.ListOfDlc);
-        var dlcs = await ResolveAsync(ids, ct);
-        var partial = store == null || steam == null || dlcs.Any(x => x.Name == $"App {x.AppId}");
+        var partial = store == null || steam == null;
         var baseGame = ToGame(details);
-        Associate(baseGame, dlcs);
-        return new(baseGame, dlcs, partial, Describe(dlcs.Count, partial));
+        return new(baseGame, ids, partial, Describe(ids.Count, partial));
     }
 
     public static void Associate(Game baseGame, IEnumerable<Game> content)

@@ -30,6 +30,12 @@ public partial class SettingsDialog
 
     private void LoadSettings()
     {
+        RbMethodCream.IsChecked = _config.UnlockMethod == UnlockMethod.CreamInstaller;
+        RbMethodGreenLuma.IsChecked = _config.UnlockMethod == UnlockMethod.GreenLuma;
+        CmbSteamUnlocker.SelectedIndex = (int)_config.SteamUnlocker;
+        ChkUnlockerProxy.IsChecked = _config.UnlockerProxy;
+        CmbUnlockerProxy.SelectedIndex = Array.IndexOf(new[] { "winmm", "winhttp", "version" }, _config.UnlockerProxyName);
+        ChkCreamProtection.IsChecked = _config.CreamExtraProtection;
         TxtSteamPath.Text = _config.SteamPath;
         TxtGreenLumaPath.Text = _config.GreenLumaPath;
         PwdSteamApiKey.Password = _config.SteamApiKey;
@@ -42,6 +48,20 @@ public partial class SettingsDialog
         ChkAutoUpdate.IsChecked = _config.AutoUpdate;
         UpdateGreenLumaVersionOverrideText();
         LoadDeployMode();
+        UpdateMethodVisibility();
+    }
+
+    private void UnlockMethod_Changed(object sender, RoutedEventArgs e) => UpdateMethodVisibility();
+
+    private void UpdateMethodVisibility()
+    {
+        if (CreamOptions == null || GreenLumaDeployPanel == null || ChkCreamProtection == null) return;
+        var cream = RbMethodCream.IsChecked == true;
+        CreamOptions.Visibility = cream ? Visibility.Visible : Visibility.Collapsed;
+        LblGreenLumaPath.Visibility = GreenLumaPathPanel.Visibility = GreenLumaVersionPanel.Visibility = GreenLumaDeployPanel.Visibility = cream ? Visibility.Collapsed : Visibility.Visible;
+        ChkDisableGreenLumaVersionNotice.IsEnabled = ChkCheckGreenLumaUpdates.IsEnabled = !cream;
+        ProxyOptions.Visibility = ChkUnlockerProxy.IsChecked == true ? Visibility.Visible : Visibility.Collapsed;
+        ChkCreamProtection.Visibility = CmbSteamUnlocker.SelectedIndex == (int)SteamUnlocker.CreamAPI ? Visibility.Visible : Visibility.Collapsed;
     }
 
     private void LoadDeployMode()
@@ -54,6 +74,7 @@ public partial class SettingsDialog
 
     private void UpdateGreenLumaVersionOverrideText()
     {
+        if (_config.UnlockMethod == UnlockMethod.CreamInstaller) return;
         var detected = GreenLumaService.DetectVersion(_config.GreenLumaPath);
         var isOverridable = GreenLumaService.CanOverrideVersion(detected);
 
@@ -301,7 +322,7 @@ public partial class SettingsDialog
         return string.IsNullOrWhiteSpace(path) ? string.Empty : path.Trim().TrimEnd('\\', '/');
     }
 
-    private static bool ValidatePaths(string steamPath, string greenLumaPath)
+    private static bool ValidatePaths(string steamPath, string greenLumaPath, bool cream = false)
     {
         if (string.IsNullOrWhiteSpace(steamPath))
         {
@@ -309,7 +330,7 @@ public partial class SettingsDialog
             return false;
         }
 
-        if (string.IsNullOrWhiteSpace(greenLumaPath))
+        if (!cream && string.IsNullOrWhiteSpace(greenLumaPath))
         {
             CustomMessageBox.Show("GreenLuma path cannot be empty.", "Validation", icon: MessageBoxImage.Exclamation);
             return false;
@@ -328,6 +349,8 @@ public partial class SettingsDialog
                 icon: MessageBoxImage.Exclamation);
             return false;
         }
+
+        if (cream) return true;
 
         if (!Directory.Exists(greenLumaPath))
         {
@@ -376,19 +399,26 @@ public partial class SettingsDialog
     {
         var steamPath = NormalizePath(TxtSteamPath.Text);
         var greenLumaPath = NormalizePath(TxtGreenLumaPath.Text);
+        var method = RbMethodCream.IsChecked == true ? UnlockMethod.CreamInstaller : UnlockMethod.GreenLuma;
+        var cream = method == UnlockMethod.CreamInstaller;
 
-        if (NavAppearance.IsChecked == true)
+        if (NavAppearance.IsChecked == true && method == _config.UnlockMethod &&
+            steamPath == NormalizePath(_config.SteamPath) && greenLumaPath == NormalizePath(_config.GreenLumaPath) &&
+            CmbSteamUnlocker.SelectedIndex == (int)_config.SteamUnlocker && ChkUnlockerProxy.IsChecked == _config.UnlockerProxy &&
+            ChkCreamProtection.IsChecked == _config.CreamExtraProtection &&
+            CmbUnlockerProxy.SelectedIndex == Array.IndexOf(new[] { "winmm", "winhttp", "version" }, _config.UnlockerProxyName))
         {
             if (!ViewAppearance.Commit()) return;
             DialogResult = true;
             Close();
             return;
         }
-        if ((steamPath.Length > 0 || greenLumaPath.Length > 0) && !ValidatePaths(steamPath, greenLumaPath)) return;
+        if ((cream || steamPath.Length > 0 || greenLumaPath.Length > 0) && !ValidatePaths(steamPath, greenLumaPath, cream)) return;
+        if (CmbSteamUnlocker.SelectedIndex < 0 || CmbUnlockerProxy.SelectedIndex < 0) return;
         if (!ViewAppearance.Commit()) return;
 
         var (_, isStealthOnly, _) = GreenLumaService.ValidateInstallation(greenLumaPath);
-        if (isStealthOnly)
+        if (!cream && isStealthOnly)
         {
             CustomMessageBox.Show(
                 "Only files required for Stealth Mode were detected.\n" +
@@ -402,6 +432,11 @@ public partial class SettingsDialog
         }
 
         _config.SteamPath = steamPath;
+        _config.UnlockMethod = method;
+        _config.SteamUnlocker = (SteamUnlocker)CmbSteamUnlocker.SelectedIndex;
+        _config.UnlockerProxy = ChkUnlockerProxy.IsChecked == true;
+        _config.UnlockerProxyName = new[] { "winmm", "winhttp", "version" }[CmbUnlockerProxy.SelectedIndex];
+        _config.CreamExtraProtection = ChkCreamProtection.IsChecked == true;
         _config.GreenLumaPath = greenLumaPath;
         _config.SteamApiKey = (BtnShowSteamApiKey.IsChecked == true ? TxtSteamApiKey.Text : PwdSteamApiKey.Password).Trim();
         _config.ReplaceSteamAutostart = ChkReplaceSteamAutostart.IsChecked.GetValueOrDefault();

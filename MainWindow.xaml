@@ -1,5 +1,11 @@
 <Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" xmlns:controls="clr-namespace:GreenLuma_Manager.Controls" Style="{StaticResource {x:Type Window}}" x:Class="GreenLuma_Manager.MainWindow" Title="Larpluma" Width="1120" Height="760" MinWidth="960" MinHeight="620" WindowStartupLocation="CenterScreen" Background="{DynamicResource DarkBg}" Icon="icon.ico">
     <Window.Resources>
+        <Style x:Key="ProfileRowContainer" TargetType="ListBoxItem">
+            <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+            <Setter Property="Padding" Value="0" />
+            <Setter Property="Focusable" Value="False" />
+            <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="ListBoxItem"><ContentPresenter /></ControlTemplate></Setter.Value></Setter>
+        </Style>
         <Style x:Key="ProfileCombo" TargetType="ComboBox" BasedOn="{StaticResource {x:Type ComboBox}}">
             <Setter Property="ItemContainerStyle">
                 <Setter.Value>
@@ -208,8 +214,11 @@
                                                 <DataGridTextColumn Header="Status" Binding="{Binding Label}" Width="SizeToCells" IsReadOnly="True" />
                                             </DataGrid.Columns>
                                         </DataGrid>
-                                        <Expander x:Name="AdditionalContent" Header="Additional content" Style="{StaticResource AdditionalContentExpander}" Visibility="Collapsed" Margin="0,8,0,0">
-                                            <DataGrid ScrollViewer.HorizontalScrollBarVisibility="Auto" x:Name="DgAdditional" IsReadOnly="False" SelectionMode="Extended">
+                                        <Expander x:Name="AdditionalContent" Header="Additional content" Style="{StaticResource AdditionalContentExpander}" Visibility="Collapsed" Margin="0,8,0,0" Expanded="AdditionalContent_Expanded" Collapsed="AdditionalContent_Collapsed">
+                                            <StackPanel>
+                                            <TextBlock x:Name="AdditionalStatus" Style="{StaticResource Muted}" TextWrapping="Wrap" Margin="0,0,0,6" />
+                                            <Button x:Name="BtnRetryContent" Content="Retry content" Click="RetryContent_Click" Visibility="Collapsed" HorizontalAlignment="Left" Margin="0,0,0,6" />
+                                            <DataGrid ScrollViewer.HorizontalScrollBarVisibility="Auto" x:Name="DgAdditional" MaxHeight="300" PreviewMouseWheel="Content_PreviewMouseWheel" VirtualizingPanel.VirtualizationMode="Recycling" IsReadOnly="False" SelectionMode="Extended">
                                                 <DataGrid.Columns>
                                                 <DataGridTemplateColumn Width="40">
                                                         <DataGridTemplateColumn.CellTemplate>
@@ -223,6 +232,7 @@
                                                     <DataGridTextColumn Header="Status" Binding="{Binding Label}" Width="SizeToCells" IsReadOnly="True" />
                                                 </DataGrid.Columns>
                                             </DataGrid>
+                                            </StackPanel>
                                         </Expander>
                                     </StackPanel>
                                 </ScrollViewer>
@@ -265,24 +275,21 @@
                             <Grid Margin="0,0,0,12">
                                 <Grid.ColumnDefinitions>
                                     <ColumnDefinition />
-                                    <ColumnDefinition Width="100" />
+                                    <ColumnDefinition Width="155" />
                                 </Grid.ColumnDefinitions>
                                 <Grid>
                                     <TextBox x:Name="TxtGameSearch" GotFocus="TxtGameSearch_GotFocus" LostFocus="TxtGameSearch_LostFocus" TextChanged="TxtGameSearch_TextChanged" AutomationProperties.Name="Filter profile" />
                                     <TextBlock x:Name="TxtGameSearchPlaceholder" Text="Filter profile…" Style="{StaticResource PlaceholderTxt}" />
                                 </Grid>
-                                <ComboBox x:Name="CmbGameTypeFilter" Grid.Column="1" Margin="8,0,0,0" SelectionChanged="CmbGameTypeFilter_SelectionChanged">
-                                    <ComboBoxItem Content="All" />
-                                    <ComboBoxItem Content="Game" />
-                                    <ComboBoxItem Content="DLC" />
-                                    <ComboBoxItem Content="Other" />
+                                <ComboBox x:Name="CmbUnlockMethod" Grid.Column="1" Margin="8,0,0,0" SelectionChanged="CmbUnlockMethod_SelectionChanged" AutomationProperties.Name="DLC unlocking method" ToolTip="Change the DLC unlocking method">
+                                    <ComboBoxItem Content="GreenLuma" />
+                                    <ComboBoxItem Content="CreamInstaller" />
                                 </ComboBox>
                             </Grid>
                         </StackPanel>
                         <Grid Grid.Row="3" x:Name="MainGameListContainer">
-                            <ScrollViewer>
-                                <ItemsControl x:Name="LstGames">
-                                    <ItemsControl.ItemTemplate>
+                                <ListBox x:Name="LstGames" Style="{x:Null}" ItemContainerStyle="{StaticResource ProfileRowContainer}" BorderThickness="0" Background="Transparent" Foreground="{DynamicResource Text}" Padding="0" ScrollViewer.CanContentScroll="True" VirtualizingPanel.IsVirtualizing="True" VirtualizingPanel.VirtualizationMode="Recycling">
+                                    <ListBox.ItemTemplate>
                                         <DataTemplate>
                                             <StackPanel Margin="0,0,0,6">
                                                 <ContentControl Content="{Binding Game}" ContentTemplate="{StaticResource ProfileGameRow}" />
@@ -294,19 +301,25 @@
                                                         </Style>
                                                     </TextBlock.Style>
                                                 </TextBlock>
-                                                <Expander Header="{Binding ContentLabel}" IsExpanded="{Binding IsExpanded, Mode=TwoWay}" AutomationProperties.Name="{Binding Name}">
+                                                <Expander Header="{Binding ContentLabel}" IsExpanded="{Binding IsExpanded, Mode=TwoWay}" AutomationProperties.Name="{Binding Name}" Expanded="ProfileContent_Expanded">
                                                     <Expander.Style>
                                                         <Style TargetType="Expander" BasedOn="{StaticResource AdditionalContentExpander}">
                                                             <Style.Triggers><DataTrigger Binding="{Binding HasChildren}" Value="False"><Setter Property="Visibility" Value="Collapsed" /></DataTrigger></Style.Triggers>
                                                         </Style>
                                                     </Expander.Style>
-                                                    <ItemsControl ItemsSource="{Binding Children}" ItemTemplate="{StaticResource ProfileGameRow}" />
+                                                    <ListBox MaxHeight="300" PreviewMouseWheel="Content_PreviewMouseWheel" ItemTemplate="{StaticResource ProfileGameRow}" ItemContainerStyle="{StaticResource ProfileRowContainer}" BorderThickness="0" Background="Transparent" Foreground="{DynamicResource Text}" Padding="0" ScrollViewer.CanContentScroll="True" VirtualizingPanel.IsVirtualizing="True" VirtualizingPanel.VirtualizationMode="Recycling">
+                                                        <ListBox.Style>
+                                                            <Style TargetType="ListBox">
+                                                                <Setter Property="ItemsSource" Value="{x:Null}" />
+                                                                <Style.Triggers><DataTrigger Binding="{Binding IsExpanded, RelativeSource={RelativeSource AncestorType=Expander}}" Value="True"><Setter Property="ItemsSource" Value="{Binding Children}" /></DataTrigger></Style.Triggers>
+                                                            </Style>
+                                                        </ListBox.Style>
+                                                    </ListBox>
                                                 </Expander>
                                             </StackPanel>
                                         </DataTemplate>
-                                    </ItemsControl.ItemTemplate>
-                                </ItemsControl>
-                            </ScrollViewer>
+                                    </ListBox.ItemTemplate>
+                                </ListBox>
                             <StackPanel x:Name="PnlEmptyGames" HorizontalAlignment="Center" VerticalAlignment="Center">
                                 <TextBlock Text="Your profile is empty" />
                                 <TextBlock Text="Add games from Steam search" Style="{StaticResource Muted}" Margin="0,8" />
@@ -318,10 +331,12 @@
                                 <TextBlock Text="Launch options" Style="{StaticResource Muted}" VerticalAlignment="Center" />
                             </DockPanel>
                             <Button x:Name="BtnGenerateApplist" Content="Generate AppList" Click="GenerateApplistButton_Click" Margin="0,0,0,8" />
+                            <Button x:Name="BtnUninstallUnlocker" Content="Uninstall DLC unlocker" Click="UninstallUnlocker_Click" Visibility="Collapsed" Margin="0,0,0,8" />
                             <Button x:Name="BtnLaunchGreenluma" Content="Launch GreenLuma" Click="LaunchGreenlumaButton_Click" Style="{StaticResource PrimaryBtn}" />
                             <StackPanel x:Name="PnlAppListProgress" Visibility="Collapsed" Margin="0,12,0,0">
                                 <ProgressBar x:Name="AppListProgressBar" Height="3" Foreground="{DynamicResource Accent}" Background="{DynamicResource Border}" />
                                 <TextBlock x:Name="TxtAppListProgress" Style="{StaticResource Muted}" Margin="0,6,0,0" />
+                                <Button x:Name="BtnCancelUnlocker" Content="Cancel after current game" Click="CancelUnlocker_Click" Visibility="Collapsed" Margin="0,8,0,0" />
                             </StackPanel>
                         </StackPanel>
                     </Grid>
@@ -329,7 +344,7 @@
             </ScrollViewer>
             <Border Grid.Row="3" BorderBrush="{DynamicResource Border}" BorderThickness="0,1,0,0">
                 <DockPanel Margin="24,0">
-                    <TextBlock DockPanel.Dock="Right" Text="Larpluma 0.1.1 · by LioK251" Style="{StaticResource Muted}" VerticalAlignment="Center" />
+                    <TextBlock DockPanel.Dock="Right" Text="Larpluma 0.1.2 · by LioK251" Style="{StaticResource Muted}" VerticalAlignment="Center" />
                     <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
                         <Rectangle x:Name="StatusIndicator" Width="5" Height="5" Fill="{DynamicResource Success}" Margin="0,0,8,0" />
                         <TextBlock x:Name="TxtStatus" Text="Ready" Style="{StaticResource Muted}" />

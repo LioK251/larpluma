@@ -5,12 +5,15 @@
             <RowDefinition Height="*" />
             <RowDefinition Height="Auto" />
         </Grid.RowDefinitions>
+        <controls:BackgroundLayer Grid.RowSpan="3" IsHitTestVisible="False" />
         <controls:TitleBar xmlns:controls="clr-namespace:GreenLuma_Manager.Controls" />
         <Border Grid.Row="1" Padding="24,20">
+            <ScrollViewer VerticalScrollBarVisibility="Auto" MaxHeight="380">
             <StackPanel>
                 <Path Name="IconPath" Width="14" Height="14" Margin="0,0,0,10" Stretch="Uniform" HorizontalAlignment="Left" />
                 <TextBlock Name="MessageText" VerticalAlignment="Center" FontSize="{DynamicResource UiSize}" Foreground="{DynamicResource TextSecond}" LineHeight="22" TextWrapping="Wrap" />
             </StackPanel>
+            </ScrollViewer>
         </Border>
         <Border Grid.Row="2" Padding="24,16" Background="{DynamicResource SurfaceBg}" BorderBrush="{DynamicResource Border}" BorderThickness="0,1,0,0">
             <StackPanel Name="ButtonPanel" HorizontalAlignment="Right" Orientation="Horizontal" />

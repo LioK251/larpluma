@@ -1,4 +1,4 @@
-param([switch]$Check)
+param([switch]$Check, [string]$OutputDirectory = 'dist')
 $ErrorActionPreference = 'Stop'
 $projectRoot = Split-Path -Parent $PSScriptRoot
 Push-Location $projectRoot
@@ -11,11 +11,15 @@ try {
     }
     & $dotnet restore GreenLuma-Manager.csproj -r win-x64 -p:SelfContained=true
     if ($LASTEXITCODE) { throw 'Restore failed.' }
-    & $dotnet publish GreenLuma-Manager.csproj --no-restore -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -p:DebugType=None -p:DebugSymbols=false -o dist
+    & $dotnet publish GreenLuma-Manager.csproj --no-restore -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -p:DebugType=None -p:DebugSymbols=false -o $OutputDirectory
     if ($LASTEXITCODE) { throw 'Publish failed.' }
-    Copy-Item -LiteralPath 'dist/GreenLuma-Manager.exe' -Destination 'dist/Larpluma.exe' -Force
-    Remove-Item -LiteralPath 'dist/GreenLuma-Manager.exe'
-    Copy-Item -LiteralPath 'LICENSE','README.md' -Destination dist -Force
-    if ($Check) { & (Join-Path $PSScriptRoot 'smoke.ps1') }
-    Get-FileHash -LiteralPath dist/Larpluma.exe -Algorithm SHA256 | Format-List
+    $executable = Join-Path $OutputDirectory 'Larpluma.exe'
+    Copy-Item -LiteralPath (Join-Path $OutputDirectory 'GreenLuma-Manager.exe') -Destination $executable -Force
+    Remove-Item -LiteralPath (Join-Path $OutputDirectory 'GreenLuma-Manager.exe')
+    Copy-Item -LiteralPath 'LICENSE','README.md' -Destination $OutputDirectory -Force
+    if ($Check) {
+        & (Join-Path $PSScriptRoot 'smoke.ps1') -Executable $executable
+        & (Join-Path $PSScriptRoot 'smoke.ps1') -Executable $executable -CreamInstaller
+    }
+    Get-FileHash -LiteralPath $executable -Algorithm SHA256 | Format-List
 } finally { Pop-Location }

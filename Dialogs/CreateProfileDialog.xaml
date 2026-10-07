@@ -5,6 +5,7 @@
             <RowDefinition Height="*" />
             <RowDefinition Height="Auto" />
         </Grid.RowDefinitions>
+        <controls:BackgroundLayer Grid.RowSpan="3" IsHitTestVisible="False" />
         <controls:TitleBar xmlns:controls="clr-namespace:GreenLuma_Manager.Controls" />
         <StackPanel Grid.Row="1" Margin="22,18,22,0">
             <TextBlock Style="{StaticResource LabelTxt}" Text="Profile Name" />

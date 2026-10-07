@@ -66,16 +66,31 @@ internal static class SteamRestartChecks
             await restart;
             await WaitFor(() => File.ReadAllLines(events).Count(x => x.StartsWith("start ")) == 3, "Forced restart");
             check(File.ReadAllLines(events).Count(x => x == "shutdown") == 2, "Unresponsive client is terminated and restarted once");
+            var cream = new GreenLuma_Manager.Models.Config
+            {
+                UnlockMethod = GreenLuma_Manager.Models.UnlockMethod.CreamInstaller,
+                SteamPath = directory, GreenLumaPath = Path.Combine(directory, "missing-greenluma"), StartSteamMinimized = true
+            };
+            check(await new GreenLuma_Manager.Controllers.GreenLumaLauncher().LaunchAsync(cream), "Selected-method launcher starts plain Steam for CreamInstaller");
+            await WaitFor(() => File.ReadAllLines(events).Count(x => x.StartsWith("start ")) == 4, "CreamInstaller Steam launch");
+            check(File.ReadAllLines(events).Count(x => x == "shutdown") == 2 && File.ReadAllLines(events).Last(x => x.StartsWith("start ")) == "start -silent",
+                "CreamInstaller launch honors minimized preference without shutdown or injection");
         }
         finally
         {
             File.WriteAllText(Path.Combine(directory, "stop"), "");
             foreach (var process in Process.GetProcessesByName("steam"))
                 using (process)
-                    if (process.MainModule?.FileName is { } path && Path.GetDirectoryName(path)!.Equals(directory, StringComparison.OrdinalIgnoreCase))
+                {
+                    try
                     {
-                        if (!process.WaitForExit(1000)) { process.Kill(); process.WaitForExit(3000); }
+                        if (process.MainModule?.FileName is { } path && Path.GetDirectoryName(path)!.Equals(directory, StringComparison.OrdinalIgnoreCase))
+                            if (!process.WaitForExit(1000)) { process.Kill(); process.WaitForExit(3000); }
                     }
+                    catch (InvalidOperationException) { /* The stop signal may have already ended the fixture. */ }
+                    catch (System.ComponentModel.Win32Exception ex) when (ex.NativeErrorCode == 5)
+                    { /* Unrelated protected Steam process; fixture processes received their own stop signal. */ }
+                }
             App.IsPreview = previousPreview;
             Environment.SetEnvironmentVariable("DOTNET_ROOT", previousRoot);
         }

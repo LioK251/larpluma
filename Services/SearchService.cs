@@ -370,7 +370,7 @@ public class SearchService
         }
     }
 
-    private static async Task<Dictionary<string, GameDetails>> FetchGameDetailsBatchAsync(List<string> appIds, CancellationToken ct = default)
+    internal static async Task<Dictionary<string, GameDetails>> FetchGameDetailsBatchAsync(List<string> appIds, CancellationToken ct = default)
     {
         EvictExpiredDetails();
         var results = new Dictionary<string, GameDetails>();

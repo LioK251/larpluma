@@ -4,6 +4,8 @@ namespace GreenLuma_Manager.Models;
 
 public record GameWithDlc(Game? BaseGame, List<Game> Dlcs, bool Partial, string Status, bool IsPackage = false);
 
+public record GameContentSummary(Game? BaseGame, List<string> ContentIds, bool Partial, string Status, bool IsPackage = false);
+
 public sealed class DlcSelection : INotifyPropertyChanged
 {
     public required Game Game { get; init; }
